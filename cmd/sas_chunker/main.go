@@ -5,7 +5,7 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/hazyhaar/pkg/pkg/sas_chunker"
+	"github.com/hazyhaar/pkg/sas_chunker"
 )
 
 func main() {
