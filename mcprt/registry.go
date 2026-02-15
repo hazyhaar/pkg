@@ -8,7 +8,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/hazyhaar/pkg/pkg/idgen"
+	"github.com/hazyhaar/pkg/idgen"
 )
 
 const Schema = `

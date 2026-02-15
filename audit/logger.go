@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hazyhaar/pkg/pkg/idgen"
+	"github.com/hazyhaar/pkg/idgen"
 )
 
 const Schema = `

@@ -25,7 +25,7 @@ import (
 	"github.com/quic-go/quic-go"
 	"github.com/quic-go/quic-go/http3"
 
-	"github.com/hazyhaar/pkg/pkg/mcpquic"
+	"github.com/hazyhaar/pkg/mcpquic"
 	"github.com/mark3labs/mcp-go/server"
 )
 

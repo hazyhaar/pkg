@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"sync"
 
-	"github.com/hazyhaar/pkg/pkg/idgen"
+	"github.com/hazyhaar/pkg/idgen"
 )
 
 // DynamicTool is a tool loaded from the mcp_tools_registry table.

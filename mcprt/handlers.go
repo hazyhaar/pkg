@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hazyhaar/pkg/pkg/idgen"
+	"github.com/hazyhaar/pkg/idgen"
 )
 
 // SQLQueryHandler executes a SELECT and returns results as JSON.

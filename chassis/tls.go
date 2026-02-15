@@ -13,7 +13,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/hazyhaar/pkg/pkg/mcpquic"
+	"github.com/hazyhaar/pkg/mcpquic"
 )
 
 // GenerateSelfSignedCert generates an ECDSA P-256 self-signed cert for development.

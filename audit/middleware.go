@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/hazyhaar/pkg/pkg/kit"
+	"github.com/hazyhaar/pkg/kit"
 )
 
 // Middleware wraps an Endpoint: measures duration, captures params/result/error,

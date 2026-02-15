@@ -14,8 +14,8 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/quic-go/quic-go"
 
-	"github.com/hazyhaar/pkg/pkg/idgen"
-	"github.com/hazyhaar/pkg/pkg/kit"
+	"github.com/hazyhaar/pkg/idgen"
+	"github.com/hazyhaar/pkg/kit"
 )
 
 // Handler handles individual MCP-over-QUIC connections without owning a listener.

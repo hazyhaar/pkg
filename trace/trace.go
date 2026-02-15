@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hazyhaar/pkg/pkg/kit"
+	"github.com/hazyhaar/pkg/kit"
 )
 
 // Entry is a single SQL trace record.
