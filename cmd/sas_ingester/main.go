@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -9,7 +10,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hazyhaar/pkg/audit"
+	"github.com/hazyhaar/pkg/idgen"
+	"github.com/hazyhaar/pkg/kit"
 	"github.com/hazyhaar/pkg/sas_ingester"
+	"github.com/hazyhaar/pkg/trace"
 )
 
 func main() {
@@ -27,24 +32,71 @@ func main() {
 		log.Fatalf("create chunks dir: %v", err)
 	}
 
-	ing, err := sas_ingester.NewIngester(cfg)
+	// --- Trace store (raw "sqlite" driver to avoid recursion) ---
+	traceDB, err := sql.Open("sqlite", cfg.DBPath+"?_journal_mode=WAL&_busy_timeout=5000")
+	if err != nil {
+		log.Fatalf("trace db: %v", err)
+	}
+	traceStore := trace.NewStore(traceDB)
+	if err := traceStore.Init(); err != nil {
+		log.Fatalf("trace init: %v", err)
+	}
+	trace.SetStore(traceStore)
+	defer traceStore.Close()
+	defer traceDB.Close()
+
+	// --- ID generators ---
+	dossierIDGen := idgen.Prefixed("dos_", idgen.Default)
+	requestIDGen := idgen.Prefixed("req_", idgen.Default)
+
+	// --- Ingester with audit ---
+	ing, err := sas_ingester.NewIngester(cfg,
+		sas_ingester.WithIDGenerator(dossierIDGen),
+	)
 	if err != nil {
 		log.Fatalf("init ingester: %v", err)
 	}
 	defer ing.Close()
 
+	// --- Audit logger (shares the ingester's DB) ---
+	auditLogger := audit.NewSQLiteLogger(
+		ing.Store.DB(),
+		audit.WithIDGenerator(idgen.Prefixed("aud_", idgen.Default)),
+	)
+	if err := auditLogger.Init(); err != nil {
+		log.Fatalf("audit init: %v", err)
+	}
+	ing.Audit = auditLogger
+	defer auditLogger.Close()
+
 	// Start retry loop in background.
 	go retryLoop(ing)
 
+	// --- HTTP mux with kit context enrichment ---
 	mux := http.NewServeMux()
-	mux.HandleFunc("/upload", uploadHandler(ing))
-	mux.HandleFunc("/dossier/", dossierHandler(ing))
+	mux.Handle("/upload", contextMiddleware(requestIDGen, uploadHandler(ing)))
+	mux.Handle("/dossier/", contextMiddleware(requestIDGen, dossierHandler(ing)))
 	mux.HandleFunc("/health", healthHandler(ing))
 
 	log.Printf("sas_ingester listening on %s", cfg.Listen)
 	if err := http.ListenAndServe(cfg.Listen, mux); err != nil {
 		log.Fatalf("serve: %v", err)
 	}
+}
+
+// contextMiddleware enriches the request context with kit values (request ID,
+// trace ID, user ID, transport) so that trace and audit can correlate entries.
+func contextMiddleware(reqIDGen idgen.Generator, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		reqID := reqIDGen()
+		ctx = kit.WithRequestID(ctx, reqID)
+		ctx = kit.WithTraceID(ctx, reqID) // use same ID for trace correlation
+		ctx = kit.WithTransport(ctx, "http")
+
+		w.Header().Set("X-Request-ID", reqID)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
 }
 
 func uploadHandler(ing *sas_ingester.Ingester) http.HandlerFunc {
@@ -77,7 +129,7 @@ func uploadHandler(ing *sas_ingester.Ingester) http.HandlerFunc {
 
 		result, err := ing.Ingest(file, dossierID, claims.Sub)
 		if err != nil {
-			log.Printf("[upload] error: %v", err)
+			log.Printf("[upload] req=%s error: %v", kit.GetRequestID(r.Context()), err)
 			http.Error(w, fmt.Sprintf("ingest: %v", err), http.StatusInternalServerError)
 			return
 		}
@@ -163,9 +215,9 @@ func healthHandler(ing *sas_ingester.Ingester) http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"status":        "ok",
-			"pieces_total":  total,
-			"pieces_ready":  ready,
+			"status":         "ok",
+			"pieces_total":   total,
+			"pieces_ready":   ready,
 			"pieces_blocked": blocked,
 		})
 	}

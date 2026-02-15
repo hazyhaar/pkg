@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	_ "modernc.org/sqlite"
+	_ "github.com/hazyhaar/pkg/trace" // registers "sqlite-trace" driver
 )
 
 // Store wraps an SQLite database for the Sas Ingester state machine.
@@ -15,7 +15,7 @@ type Store struct {
 
 // OpenStore opens (or creates) the SQLite database at path and runs migrations.
 func OpenStore(path string) (*Store, error) {
-	db, err := sql.Open("sqlite", path+"?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=ON")
+	db, err := sql.Open("sqlite-trace", path+"?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=ON")
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
 	}
@@ -26,6 +26,9 @@ func OpenStore(path string) (*Store, error) {
 	}
 	return s, nil
 }
+
+// DB returns the underlying *sql.DB for sharing with audit/trace layers.
+func (s *Store) DB() *sql.DB { return s.db }
 
 // Close closes the underlying database connection.
 func (s *Store) Close() error { return s.db.Close() }

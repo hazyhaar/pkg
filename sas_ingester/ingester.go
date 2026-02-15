@@ -5,6 +5,9 @@ import (
 	"io"
 	"log"
 	"path/filepath"
+
+	"github.com/hazyhaar/pkg/audit"
+	"github.com/hazyhaar/pkg/idgen"
 )
 
 // Ingester is the main pipeline orchestrator.
@@ -12,25 +15,62 @@ type Ingester struct {
 	Store  *Store
 	Config *Config
 	Router *Router
+	Audit  audit.Logger
+	NewID  idgen.Generator
 }
 
+// IngesterOption configures an Ingester.
+type IngesterOption func(*Ingester)
+
+// WithAudit sets the audit logger.
+func WithAudit(l audit.Logger) IngesterOption { return func(ing *Ingester) { ing.Audit = l } }
+
+// WithIDGenerator sets the ID generator for dossier IDs.
+func WithIDGenerator(g idgen.Generator) IngesterOption { return func(ing *Ingester) { ing.NewID = g } }
+
 // NewIngester creates a fully wired ingester.
-func NewIngester(cfg *Config) (*Ingester, error) {
+func NewIngester(cfg *Config, opts ...IngesterOption) (*Ingester, error) {
 	store, err := OpenStore(cfg.DBPath)
 	if err != nil {
 		return nil, fmt.Errorf("open store: %w", err)
 	}
 	router := NewRouter(store, cfg)
-	return &Ingester{
+	ing := &Ingester{
 		Store:  store,
 		Config: cfg,
 		Router: router,
-	}, nil
+		NewID:  idgen.Prefixed("dos_", idgen.Default),
+	}
+	for _, o := range opts {
+		o(ing)
+	}
+	return ing, nil
 }
 
 // Close releases resources.
 func (ing *Ingester) Close() error {
+	if ing.Audit != nil {
+		ing.Audit.Close()
+	}
 	return ing.Store.Close()
+}
+
+func (ing *Ingester) auditLog(action, userID, params, result, errMsg string) {
+	if ing.Audit == nil {
+		return
+	}
+	status := "success"
+	if errMsg != "" {
+		status = "error"
+	}
+	ing.Audit.LogAsync(&audit.Entry{
+		Action:     action,
+		UserID:     userID,
+		Parameters: params,
+		Result:     result,
+		Error:      errMsg,
+		Status:     status,
+	})
 }
 
 // Ingest runs the full pipeline for a single upload:
@@ -61,6 +101,7 @@ func (ing *Ingester) Ingest(r io.Reader, dossierID, ownerSub string) (*IngestRes
 
 	if upload.Deduplicated {
 		result.State = "deduplicated"
+		ing.auditLog("upload.dedup", ownerSub, dossierID, upload.SHA256, "")
 		return result, nil
 	}
 
@@ -86,6 +127,7 @@ func (ing *Ingester) Ingest(r io.Reader, dossierID, ownerSub string) (*IngestRes
 			log.Printf("[ingester] update state: %v", err)
 		}
 		result.State = "blocked"
+		ing.auditLog("upload.blocked", ownerSub, dossierID, upload.SHA256, fmt.Sprintf("warnings: %v", scanResult.Warnings))
 		return result, nil
 	}
 
@@ -115,6 +157,7 @@ func (ing *Ingester) Ingest(r io.Reader, dossierID, ownerSub string) (*IngestRes
 
 	result.State = finalState
 	result.MIME = mime
+	ing.auditLog("upload.complete", ownerSub, dossierID, fmt.Sprintf("sha256=%s state=%s", upload.SHA256, finalState), "")
 
 	// Step 6: enqueue routes.
 	piece, _ := ing.Store.GetPiece(upload.SHA256, dossierID)
