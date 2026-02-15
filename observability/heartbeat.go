@@ -111,6 +111,55 @@ func (hw *HeartbeatWriter) loop(ctx context.Context) {
 	}
 }
 
+// HeartbeatStatus is the latest heartbeat for a worker, enriched with a
+// staleness check so callers don't have to compute it themselves.
+type HeartbeatStatus struct {
+	WorkerName      string         `json:"worker_name"`
+	Hostname        string         `json:"hostname"`
+	PID             int            `json:"pid"`
+	Timestamp       time.Time      `json:"timestamp"`
+	GoroutinesCount int            `json:"goroutines_count"`
+	MemoryAllocMB   float64        `json:"memory_alloc_mb"`
+	MemorySysMB     float64        `json:"memory_sys_mb"`
+	GCCount         int            `json:"gc_count"`
+	Alive           bool           `json:"alive"`   // true if last beat is within staleness threshold
+	StaleSince      *time.Duration `json:"stale_since,omitempty"` // how long past the threshold
+}
+
+// LatestHeartbeat returns the most recent heartbeat for the given worker.
+// stalenessThreshold controls the alive/stale boundary (typically 3× the
+// heartbeat interval). Returns nil, nil if no heartbeat has been recorded yet.
+func LatestHeartbeat(ctx context.Context, db *sql.DB, workerName string, stalenessThreshold time.Duration) (*HeartbeatStatus, error) {
+	row := db.QueryRowContext(ctx, `
+		SELECT worker_name, hostname, worker_pid, timestamp,
+		       goroutines_count, memory_alloc_mb, memory_sys_mb, gc_count
+		FROM worker_heartbeats
+		WHERE worker_name = ?
+		ORDER BY timestamp DESC LIMIT 1`, workerName)
+
+	var hs HeartbeatStatus
+	var ts int64
+	err := row.Scan(&hs.WorkerName, &hs.Hostname, &hs.PID, &ts,
+		&hs.GoroutinesCount, &hs.MemoryAllocMB, &hs.MemorySysMB, &hs.GCCount)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("query latest heartbeat: %w", err)
+	}
+
+	hs.Timestamp = time.Unix(ts, 0)
+	age := time.Since(hs.Timestamp)
+	if age <= stalenessThreshold {
+		hs.Alive = true
+	} else {
+		hs.Alive = false
+		stale := age - stalenessThreshold
+		hs.StaleSince = &stale
+	}
+	return &hs, nil
+}
+
 // CleanupHeartbeats deletes heartbeats older than retentionDays.
 func CleanupHeartbeats(ctx context.Context, db *sql.DB, retentionDays int) (int64, error) {
 	threshold := time.Now().AddDate(0, 0, -retentionDays).Unix()

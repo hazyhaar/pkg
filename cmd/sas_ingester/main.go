@@ -95,7 +95,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.Handle("/upload", contextMiddleware(requestIDGen, uploadHandler(ing)))
 	mux.Handle("/dossier/", contextMiddleware(requestIDGen, dossierHandler(ing)))
-	mux.HandleFunc("/health", healthHandler(ing))
+	mux.HandleFunc("/health", healthHandler(ing, obsDB))
 
 	log.Printf("sas_ingester listening on %s", cfg.Listen)
 	if err := http.ListenAndServe(cfg.Listen, mux); err != nil {
@@ -226,19 +226,33 @@ func dossierHandler(ing *sas_ingester.Ingester) http.HandlerFunc {
 	}
 }
 
-func healthHandler(ing *sas_ingester.Ingester) http.HandlerFunc {
+func healthHandler(ing *sas_ingester.Ingester, obsDB *sql.DB) http.HandlerFunc {
+	// Staleness threshold = 3× heartbeat interval (15s × 3 = 45s).
+	const stalenessThreshold = 45 * time.Second
+
 	return func(w http.ResponseWriter, r *http.Request) {
 		total, _ := ing.Store.PiecesCount("")
 		ready, _ := ing.Store.PiecesCount("ready")
 		blocked, _ := ing.Store.PiecesCount("blocked")
 
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		resp := map[string]interface{}{
 			"status":         "ok",
 			"pieces_total":   total,
 			"pieces_ready":   ready,
 			"pieces_blocked": blocked,
-		})
+		}
+
+		// Heartbeat: last known liveness + runtime snapshot.
+		hb, err := observability.LatestHeartbeat(r.Context(), obsDB, "sas_ingester", stalenessThreshold)
+		if err == nil && hb != nil {
+			resp["heartbeat"] = hb
+			if !hb.Alive {
+				resp["status"] = "degraded"
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
 	}
 }
 
