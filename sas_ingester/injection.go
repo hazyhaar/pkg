@@ -1,6 +1,7 @@
 package sas_ingester
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 )
@@ -85,19 +86,7 @@ func scanChunkFile(chunksDir string, idx int, worst *InjectionResult) error {
 }
 
 func chunkFileName(idx int) string {
-	return "chunk_" + padIdx(idx) + ".bin"
-}
-
-func padIdx(idx int) string {
-	s := "00000"
-	v := idx
-	digits := make([]byte, 5)
-	for i := 4; i >= 0; i-- {
-		digits[i] = byte('0' + v%10)
-		v /= 10
-	}
-	_ = s
-	return string(digits)
+	return fmt.Sprintf("chunk_%05d.bin", idx)
 }
 
 func riskLevel(r string) int {

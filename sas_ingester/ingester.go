@@ -65,6 +65,29 @@ func NewIngester(cfg *Config, opts ...IngesterOption) (*Ingester, error) {
 	return ing, nil
 }
 
+// RecoverStalePieces finds pieces stuck in intermediate states (received,
+// scanned) from a previous crash and marks them for re-processing.
+// Call this once at boot before accepting new uploads.
+func (ing *Ingester) RecoverStalePieces() {
+	for _, state := range []string{"received", "scanned"} {
+		pieces, err := ing.Store.ListPiecesByState(state)
+		if err != nil {
+			log.Printf("[recovery] list %s pieces: %v", state, err)
+			continue
+		}
+		for _, p := range pieces {
+			log.Printf("[recovery] re-queuing stale piece sha256=%s dossier=%s state=%s", p.SHA256, p.DossierID, p.State)
+			// Mark as received so the pipeline can retry from the appropriate step.
+			if err := ing.Store.UpdatePieceState(p.SHA256, p.DossierID, "received"); err != nil {
+				log.Printf("[recovery] update piece: %v", err)
+			}
+		}
+		if len(pieces) > 0 {
+			log.Printf("[recovery] re-queued %d pieces from state %q", len(pieces), state)
+		}
+	}
+}
+
 // Close releases resources.
 func (ing *Ingester) Close() error {
 	if ing.Audit != nil {

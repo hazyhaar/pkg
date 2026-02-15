@@ -29,7 +29,8 @@ type ClamAVConfig struct {
 type WebhookTarget struct {
 	Name          string `yaml:"name"`
 	URL           string `yaml:"url"`
-	AuthMode      string `yaml:"auth_mode"`
+	AuthMode      string `yaml:"auth_mode"`      // none | bearer | hmac
+	Secret        string `yaml:"secret"`          // per-webhook secret (bearer token or HMAC key)
 	RequireReview bool   `yaml:"require_review"`
 }
 
@@ -80,7 +81,12 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("webhook[%d]: url is required", i)
 		}
 		switch wh.AuthMode {
-		case "none", "bearer", "hmac", "":
+		case "none", "":
+			// OK, no secret needed.
+		case "bearer", "hmac":
+			if wh.Secret == "" {
+				return fmt.Errorf("webhook[%d]: auth_mode %q requires a per-webhook secret", i, wh.AuthMode)
+			}
 		default:
 			return fmt.Errorf("webhook[%d]: unsupported auth_mode %q", i, wh.AuthMode)
 		}

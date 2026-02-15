@@ -88,6 +88,9 @@ func main() {
 	}
 	defer ing.Close()
 
+	// Crash recovery: re-queue pieces stuck in intermediate states.
+	ing.RecoverStalePieces()
+
 	// Start retry loop in background.
 	go retryLoop(ing)
 
@@ -133,6 +136,11 @@ func uploadHandler(ing *sas_ingester.Ingester) http.HandlerFunc {
 		}
 
 		dossierID := sas_ingester.ExtractDossierID(claims)
+		if dossierID == "" {
+			// No dossier_id in JWT — generate an opaque server-side ID.
+			// Never derive from claims.Sub to preserve identity opacity.
+			dossierID = ing.NewID()
+		}
 
 		// Parse multipart: expect a "file" field.
 		if err := r.ParseMultipartForm(ing.Config.MaxFileBytes()); err != nil {

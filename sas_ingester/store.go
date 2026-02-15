@@ -63,7 +63,8 @@ CREATE TABLE IF NOT EXISTS chunks (
     idx             INTEGER NOT NULL,
     chunk_sha256    TEXT NOT NULL,
     received        INTEGER DEFAULT 0,
-    PRIMARY KEY (piece_sha256, dossier_id, idx)
+    PRIMARY KEY (piece_sha256, dossier_id, idx),
+    FOREIGN KEY (piece_sha256, dossier_id) REFERENCES pieces(sha256, dossier_id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS routes_pending (
@@ -75,7 +76,8 @@ CREATE TABLE IF NOT EXISTS routes_pending (
     reviewed        INTEGER DEFAULT 0,
     attempts        INTEGER DEFAULT 0,
     last_error      TEXT,
-    next_retry_at   TEXT
+    next_retry_at   TEXT,
+    FOREIGN KEY (piece_sha256, dossier_id) REFERENCES pieces(sha256, dossier_id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_pieces_state   ON pieces(state);
@@ -140,22 +142,11 @@ func (s *Store) EnsureDossier(id, ownerSub string) error {
 	return nil
 }
 
-// DeleteDossier deletes a dossier by ID (CASCADE deletes pieces, chunks).
+// DeleteDossier deletes a dossier by ID.
+// CASCADE on pieces → chunks + routes_pending handles cleanup.
 func (s *Store) DeleteDossier(id string) error {
-	// Also clean routes_pending manually since it has no FK.
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	if _, err := tx.Exec(`DELETE FROM routes_pending WHERE dossier_id = ?`, id); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(`DELETE FROM dossiers WHERE id = ?`, id); err != nil {
-		return err
-	}
-	return tx.Commit()
+	_, err := s.db.Exec(`DELETE FROM dossiers WHERE id = ?`, id)
+	return err
 }
 
 // --- Pieces ---

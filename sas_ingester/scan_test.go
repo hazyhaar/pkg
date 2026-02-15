@@ -8,17 +8,22 @@ import (
 func TestCheckZipBomb(t *testing.T) {
 	// Normal data: no alert.
 	normal := make([]byte, 1000)
-	if w := checkZipBomb(normal); w != "" {
+	if w := checkZipBomb(normal, 1000); w != "" {
 		t.Errorf("unexpected warning for normal data: %s", w)
 	}
 
-	// Suspicious: many PK headers in tiny file.
+	// Suspicious: many PK headers in tiny header, small file.
 	suspicious := make([]byte, 0, 2000)
 	for i := 0; i < 150; i++ {
 		suspicious = append(suspicious, 'P', 'K', 3, 4, 0, 0, 0, 0)
 	}
-	if w := checkZipBomb(suspicious); w == "" {
+	if w := checkZipBomb(suspicious, int64(len(suspicious))); w == "" {
 		t.Error("expected zip bomb warning")
+	}
+
+	// Same header but large file → not suspicious (legitimate Office doc).
+	if w := checkZipBomb(suspicious, 50*1024*1024); w != "" {
+		t.Errorf("large file should not trigger zip bomb: %s", w)
 	}
 }
 

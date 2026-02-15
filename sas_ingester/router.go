@@ -2,6 +2,9 @@ package sas_ingester
 
 import (
 	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -72,8 +75,20 @@ func (rt *Router) Deliver(route *RoutePending, piece *Piece) bool {
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	if route.AuthMode == "bearer" && rt.cfg.JWTSecret != "" {
-		req.Header.Set("Authorization", "Bearer "+rt.cfg.JWTSecret)
+	// Apply per-webhook auth — never use the global JWTSecret.
+	wh := rt.findWebhook(route.Target)
+	switch route.AuthMode {
+	case "bearer":
+		if wh != nil && wh.Secret != "" {
+			req.Header.Set("Authorization", "Bearer "+wh.Secret)
+		}
+	case "hmac":
+		if wh != nil && wh.Secret != "" {
+			mac := hmac.New(sha256.New, []byte(wh.Secret))
+			mac.Write(body)
+			sig := hex.EncodeToString(mac.Sum(nil))
+			req.Header.Set("X-Signature-256", "sha256="+sig)
+		}
 	}
 
 	resp, err := rt.client.Do(req)
@@ -92,6 +107,15 @@ func (rt *Router) Deliver(route *RoutePending, piece *Piece) bool {
 
 	rt.recordFailure(route, fmt.Sprintf("http %d", resp.StatusCode))
 	return false
+}
+
+func (rt *Router) findWebhook(targetURL string) *WebhookTarget {
+	for i := range rt.cfg.Webhooks {
+		if rt.cfg.Webhooks[i].URL == targetURL {
+			return &rt.cfg.Webhooks[i]
+		}
+	}
+	return nil
 }
 
 func (rt *Router) recordFailure(route *RoutePending, errMsg string) {

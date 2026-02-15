@@ -28,6 +28,7 @@ webhooks:
   - name: "test"
     url: "https://example.com/hook"
     auth_mode: "bearer"
+    secret: "webhook-token-abc"
 jwt_secret: "secret123"
 `
 	f, err := os.CreateTemp("", "config_test_*.yaml")
@@ -63,8 +64,16 @@ func TestValidate_BadAuthMode(t *testing.T) {
 
 func TestValidate_MissingURL(t *testing.T) {
 	cfg := DefaultConfig()
-	cfg.Webhooks = []WebhookTarget{{AuthMode: "bearer"}}
+	cfg.Webhooks = []WebhookTarget{{AuthMode: "none"}}
 	if err := cfg.Validate(); err == nil {
 		t.Error("expected validation error for missing url")
+	}
+}
+
+func TestValidate_BearerWithoutSecret(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Webhooks = []WebhookTarget{{URL: "http://x", AuthMode: "bearer"}}
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected validation error for bearer without secret")
 	}
 }
