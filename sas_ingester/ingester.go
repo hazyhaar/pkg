@@ -1,32 +1,50 @@
 package sas_ingester
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log"
 	"path/filepath"
+	"time"
 
-	"github.com/hazyhaar/pkg/audit"
 	"github.com/hazyhaar/pkg/idgen"
+	"github.com/hazyhaar/pkg/observability"
 )
 
 // Ingester is the main pipeline orchestrator.
 type Ingester struct {
-	Store  *Store
-	Config *Config
-	Router *Router
-	Audit  audit.Logger
-	NewID  idgen.Generator
+	Store   *Store
+	Config  *Config
+	Router  *Router
+	Audit   *observability.AuditLogger
+	Metrics *observability.MetricsManager
+	Events  *observability.EventLogger
+	NewID   idgen.Generator
 }
 
 // IngesterOption configures an Ingester.
 type IngesterOption func(*Ingester)
 
 // WithAudit sets the audit logger.
-func WithAudit(l audit.Logger) IngesterOption { return func(ing *Ingester) { ing.Audit = l } }
+func WithAudit(a *observability.AuditLogger) IngesterOption {
+	return func(ing *Ingester) { ing.Audit = a }
+}
+
+// WithMetrics sets the metrics manager.
+func WithMetrics(m *observability.MetricsManager) IngesterOption {
+	return func(ing *Ingester) { ing.Metrics = m }
+}
+
+// WithEvents sets the event logger.
+func WithEvents(e *observability.EventLogger) IngesterOption {
+	return func(ing *Ingester) { ing.Events = e }
+}
 
 // WithIDGenerator sets the ID generator for dossier IDs.
-func WithIDGenerator(g idgen.Generator) IngesterOption { return func(ing *Ingester) { ing.NewID = g } }
+func WithIDGenerator(g idgen.Generator) IngesterOption {
+	return func(ing *Ingester) { ing.NewID = g }
+}
 
 // NewIngester creates a fully wired ingester.
 func NewIngester(cfg *Config, opts ...IngesterOption) (*Ingester, error) {
@@ -52,25 +70,42 @@ func (ing *Ingester) Close() error {
 	if ing.Audit != nil {
 		ing.Audit.Close()
 	}
+	if ing.Metrics != nil {
+		ing.Metrics.Close()
+	}
 	return ing.Store.Close()
 }
 
-func (ing *Ingester) auditLog(action, userID, params, result, errMsg string) {
+func (ing *Ingester) auditLog(operation, userID, params, result string, err error, duration time.Duration) {
 	if ing.Audit == nil {
 		return
 	}
-	status := "success"
-	if errMsg != "" {
-		status = "error"
+	entry := ing.Audit.NewAuditEntry("sas_ingester", operation, params, result, err, duration)
+	entry.UserID = userID
+	ing.Audit.LogAsync(entry)
+}
+
+func (ing *Ingester) recordEvent(eventType, entityID, userID, action, details string, success bool) {
+	if ing.Events == nil {
+		return
 	}
-	ing.Audit.LogAsync(&audit.Entry{
-		Action:     action,
-		UserID:     userID,
-		Parameters: params,
-		Result:     result,
-		Error:      errMsg,
-		Status:     status,
+	ing.Events.LogEvent(context.Background(), observability.BusinessEvent{
+		EventType:   eventType,
+		ServiceName: "sas_ingester",
+		EntityType:  "piece",
+		EntityID:    entityID,
+		UserID:      userID,
+		Action:      action,
+		Details:     details,
+		Success:     success,
 	})
+}
+
+func (ing *Ingester) recordMetric(name string, value float64, unit string) {
+	if ing.Metrics == nil {
+		return
+	}
+	ing.Metrics.RecordSimple(name, value, unit)
 }
 
 // Ingest runs the full pipeline for a single upload:
@@ -81,6 +116,8 @@ func (ing *Ingester) auditLog(action, userID, params, result, errMsg string) {
 //  5. Update piece state
 //  6. Enqueue webhook routes
 func (ing *Ingester) Ingest(r io.Reader, dossierID, ownerSub string) (*IngestResult, error) {
+	start := time.Now()
+
 	// Ensure dossier exists.
 	if err := ing.Store.EnsureDossier(dossierID, ownerSub); err != nil {
 		return nil, fmt.Errorf("ensure dossier: %w", err)
@@ -101,7 +138,8 @@ func (ing *Ingester) Ingest(r io.Reader, dossierID, ownerSub string) (*IngestRes
 
 	if upload.Deduplicated {
 		result.State = "deduplicated"
-		ing.auditLog("upload.dedup", ownerSub, dossierID, upload.SHA256, "")
+		ing.auditLog("upload.dedup", ownerSub, dossierID, upload.SHA256, nil, time.Since(start))
+		ing.recordEvent("upload", upload.SHA256, ownerSub, "dedup", "", true)
 		return result, nil
 	}
 
@@ -115,11 +153,13 @@ func (ing *Ingester) Ingest(r io.Reader, dossierID, ownerSub string) (*IngestRes
 	}
 
 	// Step 3: security scan on the first chunk.
+	scanStart := time.Now()
 	scanResult, err := ScanFile(firstChunk, ing.Config)
 	if err != nil {
 		log.Printf("[ingester] scan warning: %v", err)
 		scanResult = &ScanResult{ClamAV: "error"}
 	}
+	ing.recordMetric("scan_duration_ms", float64(time.Since(scanStart).Milliseconds()), "milliseconds")
 	result.Scan = scanResult
 
 	if scanResult.Blocked {
@@ -127,7 +167,10 @@ func (ing *Ingester) Ingest(r io.Reader, dossierID, ownerSub string) (*IngestRes
 			log.Printf("[ingester] update state: %v", err)
 		}
 		result.State = "blocked"
-		ing.auditLog("upload.blocked", ownerSub, dossierID, upload.SHA256, fmt.Sprintf("warnings: %v", scanResult.Warnings))
+		ing.auditLog("upload.blocked", ownerSub, dossierID, upload.SHA256, nil, time.Since(start))
+		ing.recordEvent("upload", upload.SHA256, ownerSub, "blocked",
+			fmt.Sprintf(`{"warnings":%q}`, scanResult.Warnings), false)
+		ing.recordMetric(observability.MetricTaskProcessedCount, 1, "count")
 		return result, nil
 	}
 
@@ -157,7 +200,14 @@ func (ing *Ingester) Ingest(r io.Reader, dossierID, ownerSub string) (*IngestRes
 
 	result.State = finalState
 	result.MIME = mime
-	ing.auditLog("upload.complete", ownerSub, dossierID, fmt.Sprintf("sha256=%s state=%s", upload.SHA256, finalState), "")
+
+	duration := time.Since(start)
+	ing.auditLog("upload.complete", ownerSub, dossierID,
+		fmt.Sprintf("sha256=%s state=%s", upload.SHA256, finalState), nil, duration)
+	ing.recordEvent("upload", upload.SHA256, ownerSub, "complete",
+		fmt.Sprintf(`{"state":%q,"mime":%q}`, finalState, mime), true)
+	ing.recordMetric(observability.MetricWorkflowDurationMs, float64(duration.Milliseconds()), "milliseconds")
+	ing.recordMetric(observability.MetricTaskProcessedCount, 1, "count")
 
 	// Step 6: enqueue routes.
 	piece, _ := ing.Store.GetPiece(upload.SHA256, dossierID)

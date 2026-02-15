@@ -1,18 +1,20 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/hazyhaar/pkg/audit"
 	"github.com/hazyhaar/pkg/idgen"
 	"github.com/hazyhaar/pkg/kit"
+	"github.com/hazyhaar/pkg/observability"
 	"github.com/hazyhaar/pkg/sas_ingester"
 	"github.com/hazyhaar/pkg/trace"
 )
@@ -45,29 +47,46 @@ func main() {
 	defer traceStore.Close()
 	defer traceDB.Close()
 
+	// --- Observability DB (separate from app DB to avoid write contention) ---
+	obsDBPath := filepath.Join(filepath.Dir(cfg.DBPath), "observability.db")
+	obsDB, err := sql.Open("sqlite", obsDBPath+"?_journal_mode=WAL&_busy_timeout=5000")
+	if err != nil {
+		log.Fatalf("observability db: %v", err)
+	}
+	defer obsDB.Close()
+	if err := observability.Init(obsDB); err != nil {
+		log.Fatalf("observability schema: %v", err)
+	}
+
+	// --- Observability components ---
+	auditLogger := observability.NewAuditLogger(obsDB, 1000,
+		observability.WithAuditIDGenerator(idgen.Prefixed("aud_", idgen.Default)),
+	)
+	metrics := observability.NewMetricsManager(obsDB, 100, 5*time.Second)
+	events := observability.NewEventLogger(obsDB,
+		observability.WithEventIDGenerator(idgen.Prefixed("evt_", idgen.Default)),
+	)
+
+	// Heartbeat: write liveness + runtime metrics every 15s.
+	heartbeat := observability.NewHeartbeatWriter(obsDB, "sas_ingester", 15*time.Second)
+	heartbeat.Start(context.Background())
+	defer heartbeat.Stop()
+
 	// --- ID generators ---
 	dossierIDGen := idgen.Prefixed("dos_", idgen.Default)
 	requestIDGen := idgen.Prefixed("req_", idgen.Default)
 
-	// --- Ingester with audit ---
+	// --- Ingester ---
 	ing, err := sas_ingester.NewIngester(cfg,
 		sas_ingester.WithIDGenerator(dossierIDGen),
+		sas_ingester.WithAudit(auditLogger),
+		sas_ingester.WithMetrics(metrics),
+		sas_ingester.WithEvents(events),
 	)
 	if err != nil {
 		log.Fatalf("init ingester: %v", err)
 	}
 	defer ing.Close()
-
-	// --- Audit logger (shares the ingester's DB) ---
-	auditLogger := audit.NewSQLiteLogger(
-		ing.Store.DB(),
-		audit.WithIDGenerator(idgen.Prefixed("aud_", idgen.Default)),
-	)
-	if err := auditLogger.Init(); err != nil {
-		log.Fatalf("audit init: %v", err)
-	}
-	ing.Audit = auditLogger
-	defer auditLogger.Close()
 
 	// Start retry loop in background.
 	go retryLoop(ing)
