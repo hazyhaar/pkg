@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/hazyhaar/pkg/idgen"
+	"github.com/hazyhaar/pkg/watch"
 )
 
 const Schema = `
@@ -172,30 +173,15 @@ func (r *Registry) ExecuteTool(ctx context.Context, toolName string, params map[
 	return handler.Execute(ctx, t, params)
 }
 
-// RunWatcher polls PRAGMA data_version every 5s and reloads tools on change.
+// RunWatcher polls for database changes and reloads tools automatically.
+// It uses watch.Watcher with PRAGMA data_version detection.
 func (r *Registry) RunWatcher(ctx context.Context) {
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
-
-	slog.Info("registry watcher started")
-	for {
-		select {
-		case <-ctx.Done():
-			slog.Info("registry watcher stopped")
-			return
-		case <-ticker.C:
-			var ver int64
-			if err := r.db.QueryRow("PRAGMA data_version").Scan(&ver); err != nil {
-				slog.Warn("data_version poll failed", "error", err)
-				continue
-			}
-			if ver != r.lastVersion && r.lastVersion != 0 {
-				slog.Info("registry change detected, reloading")
-				if err := r.LoadTools(ctx); err != nil {
-					slog.Error("reload failed", "error", err)
-				}
-			}
-			r.lastVersion = ver
-		}
-	}
+	w := watch.New(r.db, watch.Options{
+		Interval: 5 * time.Second,
+		Detector: watch.PragmaDataVersion,
+	})
+	r.watcher = w
+	w.OnChange(ctx, func() error {
+		return r.LoadTools(ctx)
+	})
 }

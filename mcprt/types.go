@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/hazyhaar/pkg/idgen"
+	"github.com/hazyhaar/pkg/watch"
 )
 
 // DynamicTool is a tool loaded from the mcp_tools_registry table.
@@ -30,12 +31,12 @@ type GoFunc func(ctx context.Context, params map[string]any) (string, error)
 
 // Registry holds loaded tools in memory with a watcher for hot reload.
 type Registry struct {
-	db          *sql.DB
-	newID       idgen.Generator
-	tools       map[string]*DynamicTool
-	goFuncs     map[string]GoFunc
-	lastVersion int64
-	mu          sync.RWMutex
+	db      *sql.DB
+	newID   idgen.Generator
+	tools   map[string]*DynamicTool
+	goFuncs map[string]GoFunc
+	watcher *watch.Watcher
+	mu      sync.RWMutex
 }
 
 const (
