@@ -1,171 +1,64 @@
-// Package trace provides SQL query tracing with async persistence to a sql_traces table.
+// Package trace provides transparent SQL tracing for modernc.org/sqlite.
+//
+// It registers a "sqlite-trace" driver that wraps the standard "sqlite" driver,
+// intercepting every Exec and Query at the database/sql/driver level. No
+// application code changes are needed beyond switching the driver name:
+//
+//	import _ "github.com/hazyhaar/pkg/trace"  // registers "sqlite-trace"
+//
+//	// Trace store (opened with raw "sqlite" to avoid recursion)
+//	traceDB, _ := sql.Open("sqlite", "traces.db")
+//	store := trace.NewStore(traceDB)
+//	store.Init()
+//	trace.SetStore(store)
+//
+//	// Application DB — all queries are now traced automatically
+//	db, _ := sql.Open("sqlite-trace", "app.db")
+//
+// Without a Store (SetStore not called or nil), the driver still logs every
+// query via slog with adaptive levels (Debug, Warn >100ms, Error on failure).
+// Trace IDs are read from context via kit.GetTraceID for request correlation.
 package trace
 
 import (
-	"context"
 	"database/sql"
-	"log/slog"
 	"sync"
-	"time"
 
-	"github.com/hazyhaar/pkg/kit"
+	sqlite "modernc.org/sqlite"
 )
 
 // Entry is a single SQL trace record.
 type Entry struct {
-	TraceID    string
+	TraceID    string // correlation with HTTP/MCP request
 	Op         string // "Exec" or "Query"
-	Query      string
-	DurationUs int64
-	Error      string
-	Timestamp  int64 // unix microseconds
+	Query      string // SQL statement
+	DurationUs int64  // microseconds
+	Error      string // empty if success
+	Timestamp  int64  // unix microseconds
 }
 
-// Store persists SQL trace entries asynchronously.
-type Store struct {
-	db   *sql.DB
-	ch   chan *Entry
-	done chan struct{}
-	once sync.Once
+// global store for persistence (nil = slog-only, no SQLite persistence)
+var (
+	globalStore *Store
+	storeMu     sync.RWMutex
+)
+
+// SetStore sets the global trace store for SQLite persistence.
+// Pass nil to disable persistence (slog-only mode).
+func SetStore(s *Store) {
+	storeMu.Lock()
+	globalStore = s
+	storeMu.Unlock()
 }
 
-const Schema = `
-CREATE TABLE IF NOT EXISTS sql_traces (
-	id INTEGER PRIMARY KEY AUTOINCREMENT,
-	trace_id TEXT,
-	op TEXT NOT NULL,
-	query TEXT NOT NULL,
-	duration_us INTEGER NOT NULL,
-	error TEXT,
-	timestamp INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_sql_traces_ts ON sql_traces(timestamp);
-CREATE INDEX IF NOT EXISTS idx_sql_traces_tid ON sql_traces(trace_id) WHERE trace_id != '';
-CREATE INDEX IF NOT EXISTS idx_sql_traces_slow ON sql_traces(duration_us) WHERE duration_us > 100000;
-`
-
-func NewStore(db *sql.DB) *Store {
-	s := &Store{
-		db:   db,
-		ch:   make(chan *Entry, 1024),
-		done: make(chan struct{}),
-	}
-	go s.flushLoop()
-	return s
+func getStore() *Store {
+	storeMu.RLock()
+	defer storeMu.RUnlock()
+	return globalStore
 }
 
-func (s *Store) Init() error {
-	_, err := s.db.Exec(Schema)
-	return err
-}
-
-// Record logs a SQL operation with timing and optional error.
-func (s *Store) Record(ctx context.Context, op, query string, d time.Duration, err error) {
-	traceID := kit.GetTraceID(ctx)
-
-	// slog
-	level := slog.LevelDebug
-	if err != nil {
-		level = slog.LevelError
-	} else if d > 100*time.Millisecond {
-		level = slog.LevelWarn
-	}
-
-	attrs := []slog.Attr{
-		slog.String("component", "sql"),
-		slog.String("op", op),
-		slog.String("query", query),
-		slog.Duration("duration", d),
-	}
-	if traceID != "" {
-		attrs = append(attrs, slog.String("trace_id", traceID))
-	}
-	if err != nil {
-		attrs = append(attrs, slog.String("error", err.Error()))
-	}
-	slog.LogAttrs(ctx, level, "SQL", attrs...)
-
-	// Async persistence
-	errMsg := ""
-	if err != nil {
-		errMsg = err.Error()
-	}
-	s.recordAsync(&Entry{
-		TraceID:    traceID,
-		Op:         op,
-		Query:      query,
-		DurationUs: d.Microseconds(),
-		Error:      errMsg,
-		Timestamp:  time.Now().UnixMicro(),
+func init() {
+	sql.Register("sqlite-trace", &TracingDriver{
+		Driver: &sqlite.Driver{},
 	})
-}
-
-func (s *Store) recordAsync(e *Entry) {
-	select {
-	case s.ch <- e:
-	default:
-		// buffer full — drop to avoid backpressure
-	}
-}
-
-func (s *Store) Close() error {
-	s.once.Do(func() {
-		close(s.ch)
-		<-s.done
-	})
-	return nil
-}
-
-func (s *Store) flushLoop() {
-	defer close(s.done)
-	batch := make([]*Entry, 0, 64)
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case e, ok := <-s.ch:
-			if !ok {
-				s.flushBatch(batch)
-				return
-			}
-			batch = append(batch, e)
-			if len(batch) >= 64 {
-				s.flushBatch(batch)
-				batch = batch[:0]
-			}
-		case <-ticker.C:
-			if len(batch) > 0 {
-				s.flushBatch(batch)
-				batch = batch[:0]
-			}
-		}
-	}
-}
-
-func (s *Store) flushBatch(batch []*Entry) {
-	if len(batch) == 0 {
-		return
-	}
-	tx, err := s.db.Begin()
-	if err != nil {
-		slog.Error("trace store: begin tx", "error", err)
-		return
-	}
-	stmt, err := tx.Prepare(`INSERT INTO sql_traces (trace_id, op, query, duration_us, error, timestamp) VALUES (?, ?, ?, ?, ?, ?)`)
-	if err != nil {
-		tx.Rollback()
-		slog.Error("trace store: prepare", "error", err)
-		return
-	}
-	defer stmt.Close()
-
-	for _, e := range batch {
-		if _, err := stmt.Exec(e.TraceID, e.Op, e.Query, e.DurationUs, e.Error, e.Timestamp); err != nil {
-			slog.Error("trace store: insert", "error", err)
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		slog.Error("trace store: commit", "error", err)
-	}
 }
