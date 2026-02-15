@@ -60,14 +60,22 @@ func WithRegistryIDGenerator(gen idgen.Generator) RegistryOption {
 
 func NewRegistry(db *sql.DB, opts ...RegistryOption) *Registry {
 	r := &Registry{
-		db:    db,
-		newID: idgen.Default,
-		tools: make(map[string]*DynamicTool),
+		db:      db,
+		newID:   idgen.Default,
+		tools:   make(map[string]*DynamicTool),
+		goFuncs: make(map[string]GoFunc),
 	}
 	for _, o := range opts {
 		o(r)
 	}
 	return r
+}
+
+// RegisterGoFunc registers a Go function callable by dynamic tools with handler_type="go_function".
+func (r *Registry) RegisterGoFunc(name string, fn GoFunc) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.goFuncs[name] = fn
 }
 
 // Init creates the registry tables.

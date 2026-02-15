@@ -25,11 +25,15 @@ type ToolHandler interface {
 	Execute(ctx context.Context, tool *DynamicTool, params map[string]any) (string, error)
 }
 
+// GoFunc is a pre-registered Go function callable from a dynamic tool.
+type GoFunc func(ctx context.Context, params map[string]any) (string, error)
+
 // Registry holds loaded tools in memory with a watcher for hot reload.
 type Registry struct {
 	db          *sql.DB
 	newID       idgen.Generator
 	tools       map[string]*DynamicTool
+	goFuncs     map[string]GoFunc
 	lastVersion int64
 	mu          sync.RWMutex
 }

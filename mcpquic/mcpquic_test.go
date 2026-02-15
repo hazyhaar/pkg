@@ -181,6 +181,27 @@ func TestNewClient_CustomTLS(t *testing.T) {
 	}
 }
 
+func TestH3TLSConfig(t *testing.T) {
+	base, err := SelfSignedTLSConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h3 := H3TLSConfig(base)
+	if len(h3.NextProtos) != 1 || h3.NextProtos[0] != "h3" {
+		t.Fatalf("ALPN: got %v, want [h3]", h3.NextProtos)
+	}
+	if h3.MinVersion != base.MinVersion {
+		t.Fatal("MinVersion should be preserved from base")
+	}
+	if len(h3.Certificates) != len(base.Certificates) {
+		t.Fatal("Certificates should be preserved from base")
+	}
+	// Verify base is not mutated
+	if base.NextProtos[0] == "h3" {
+		t.Fatal("base config should not be mutated")
+	}
+}
+
 func TestClient_NotConnected(t *testing.T) {
 	c := NewClient("localhost:1234", nil)
 

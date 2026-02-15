@@ -86,3 +86,10 @@ func ClientTLSConfig(insecure bool) *tls.Config {
 		InsecureSkipVerify: insecure,
 	}
 }
+
+// H3TLSConfig clones a TLS config with ALPN set to "h3" for HTTP/3 serving.
+func H3TLSConfig(base *tls.Config) *tls.Config {
+	cfg := base.Clone()
+	cfg.NextProtos = []string{"h3"}
+	return cfg
+}
