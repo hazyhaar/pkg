@@ -166,11 +166,36 @@ func (ing *Ingester) Ingest(r io.Reader, dossierID, ownerSub string) (*IngestRes
 		return result, nil
 	}
 
+	return ing.processPipeline(upload, dossierID, ownerSub, result, start)
+}
+
+// IngestFromUpload runs pipeline steps 2-6 for an upload that was already
+// received (e.g. via tus resumable upload). The UploadResult must have SHA256,
+// SizeBytes, and ChunkCount set; the piece must already exist in the DB.
+func (ing *Ingester) IngestFromUpload(upload *UploadResult, dossierID, ownerSub string) (*IngestResult, error) {
+	start := time.Now()
+
+	// Ensure dossier exists.
+	if err := ing.Store.EnsureDossier(dossierID, ownerSub); err != nil {
+		return nil, fmt.Errorf("ensure dossier: %w", err)
+	}
+
+	result := &IngestResult{
+		SHA256:    upload.SHA256,
+		SizeBytes: upload.SizeBytes,
+		DossierID: dossierID,
+	}
+
+	return ing.processPipeline(upload, dossierID, ownerSub, result, start)
+}
+
+// processPipeline runs steps 2-6: metadata, scan, injection, state, routes.
+func (ing *Ingester) processPipeline(upload *UploadResult, dossierID, ownerSub string, result *IngestResult, start time.Time) (*IngestResult, error) {
 	chunkDir := filepath.Join(ing.Config.ChunksDir, dossierID, upload.SHA256)
 
-	// Step 2: metadata extraction on the first chunk (approximation for the whole file).
+	// Step 2: metadata extraction across all chunks (header + trailer + entropy).
 	firstChunk := filepath.Join(chunkDir, "chunk_00000.bin")
-	meta, err := ExtractMetadata(firstChunk)
+	meta, err := ExtractFullMetadata(chunkDir, upload.ChunkCount)
 	if err != nil {
 		log.Printf("[ingester] metadata warning: %v", err)
 	}

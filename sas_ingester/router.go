@@ -37,8 +37,34 @@ func NewRouter(store *Store, cfg *Config) *Router {
 	}
 }
 
-// EnqueueRoutes creates pending routes for all configured webhooks for a piece.
+// EnqueueRoutes creates pending routes for a piece. If the dossier has
+// per-dossier routes (dossiers.routes JSON), those are used exclusively.
+// Otherwise, the global webhook config is used as a fallback.
 func (rt *Router) EnqueueRoutes(piece *Piece) error {
+	// Check for per-dossier routing first.
+	dossier, err := rt.store.GetDossier(piece.DossierID)
+	if err != nil {
+		return fmt.Errorf("get dossier for routing: %w", err)
+	}
+
+	if dossier != nil {
+		if dossierRoutes := dossier.ParsedRoutes(); len(dossierRoutes) > 0 {
+			for _, dr := range dossierRoutes {
+				if err := rt.store.InsertRoute(&RoutePending{
+					PieceSHA256:   piece.SHA256,
+					DossierID:     piece.DossierID,
+					Target:        dr.URL,
+					AuthMode:      dr.AuthMode,
+					RequireReview: dr.RequireReview,
+				}); err != nil {
+					return fmt.Errorf("enqueue dossier route %s: %w", dr.URL, err)
+				}
+			}
+			return nil
+		}
+	}
+
+	// Fallback to global webhooks.
 	for _, wh := range rt.cfg.Webhooks {
 		if err := rt.store.InsertRoute(&RoutePending{
 			PieceSHA256:   piece.SHA256,
@@ -76,15 +102,16 @@ func (rt *Router) Deliver(route *RoutePending, piece *Piece) bool {
 	req.Header.Set("Content-Type", "application/json")
 
 	// Apply per-webhook auth — never use the global JWTSecret.
-	wh := rt.findWebhook(route.Target)
+	// Resolve secret: check per-dossier routes first, then global config.
+	secret := rt.resolveSecret(route.DossierID, route.Target)
 	switch route.AuthMode {
 	case "bearer":
-		if wh != nil && wh.Secret != "" {
-			req.Header.Set("Authorization", "Bearer "+wh.Secret)
+		if secret != "" {
+			req.Header.Set("Authorization", "Bearer "+secret)
 		}
 	case "hmac":
-		if wh != nil && wh.Secret != "" {
-			mac := hmac.New(sha256.New, []byte(wh.Secret))
+		if secret != "" {
+			mac := hmac.New(sha256.New, []byte(secret))
 			mac.Write(body)
 			sig := hex.EncodeToString(mac.Sum(nil))
 			req.Header.Set("X-Signature-256", "sha256="+sig)
@@ -109,13 +136,24 @@ func (rt *Router) Deliver(route *RoutePending, piece *Piece) bool {
 	return false
 }
 
-func (rt *Router) findWebhook(targetURL string) *WebhookTarget {
-	for i := range rt.cfg.Webhooks {
-		if rt.cfg.Webhooks[i].URL == targetURL {
-			return &rt.cfg.Webhooks[i]
+// resolveSecret looks up the per-webhook secret for a target URL.
+// It checks per-dossier routes first, then falls back to global config.
+func (rt *Router) resolveSecret(dossierID, targetURL string) string {
+	// Check per-dossier routes.
+	if dossier, err := rt.store.GetDossier(dossierID); err == nil && dossier != nil {
+		for _, dr := range dossier.ParsedRoutes() {
+			if dr.URL == targetURL {
+				return dr.Secret
+			}
 		}
 	}
-	return nil
+	// Fallback to global config.
+	for i := range rt.cfg.Webhooks {
+		if rt.cfg.Webhooks[i].URL == targetURL {
+			return rt.cfg.Webhooks[i].Secret
+		}
+	}
+	return ""
 }
 
 func (rt *Router) recordFailure(route *RoutePending, errMsg string) {

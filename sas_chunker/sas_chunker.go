@@ -38,6 +38,91 @@ type Manifest struct {
 // index is zero-based, total is the expected chunk count, bytes is cumulative.
 type ProgressFunc func(index, total int, bytes int64)
 
+// SplitReader reads from r and writes chunk files plus a manifest.json into outDir.
+// It streams directly without creating a temp file, computing the overall SHA-256
+// while writing each chunk. chunkSize <= 0 defaults to DefaultChunkSize.
+// originalName is used in the manifest; progress may be nil.
+func SplitReader(r io.Reader, originalName, outDir string, chunkSize int64, progress ProgressFunc) (*Manifest, error) {
+	if chunkSize <= 0 {
+		chunkSize = DefaultChunkSize
+	}
+	if err := os.MkdirAll(outDir, 0755); err != nil {
+		return nil, fmt.Errorf("create output dir: %w", err)
+	}
+
+	fileHasher := sha256.New()
+	tee := io.TeeReader(r, fileHasher)
+
+	manifest := &Manifest{
+		OriginalName: originalName,
+		ChunkSize:    chunkSize,
+		Chunks:       make([]ChunkMeta, 0),
+		CreatedAt:    time.Now().UTC().Format(time.RFC3339),
+	}
+
+	buf := make([]byte, chunkSize)
+	var offset int64
+	var idx int
+
+	for {
+		n, readErr := io.ReadFull(tee, buf)
+		if n == 0 {
+			break
+		}
+		data := buf[:n]
+
+		chunkHasher := sha256.New()
+		chunkHasher.Write(data)
+		chunkHash := hex.EncodeToString(chunkHasher.Sum(nil))
+
+		fileName := fmt.Sprintf("chunk_%05d.bin", idx)
+		chunkPath := filepath.Join(outDir, fileName)
+		if err := os.WriteFile(chunkPath, data, 0644); err != nil {
+			return nil, fmt.Errorf("write chunk %d: %w", idx, err)
+		}
+
+		manifest.Chunks = append(manifest.Chunks, ChunkMeta{
+			Index:       idx,
+			FileName:    fileName,
+			OffsetBytes: offset,
+			SizeBytes:   int64(n),
+			SHA256:      chunkHash,
+		})
+
+		offset += int64(n)
+		idx++
+
+		if progress != nil {
+			progress(idx-1, 0, offset) // total unknown during streaming
+		}
+
+		if readErr != nil {
+			break
+		}
+	}
+
+	manifest.OriginalSize = offset
+	manifest.OriginalSHA256 = hex.EncodeToString(fileHasher.Sum(nil))
+	manifest.TotalChunks = idx
+
+	// Update progress callback with final total.
+	if progress != nil && idx > 0 {
+		progress(idx-1, idx, offset)
+	}
+
+	// Write manifest.
+	manifestPath := filepath.Join(outDir, "manifest.json")
+	mData, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("marshal manifest: %w", err)
+	}
+	if err := os.WriteFile(manifestPath, mData, 0644); err != nil {
+		return nil, fmt.Errorf("write manifest: %w", err)
+	}
+
+	return manifest, nil
+}
+
 // Split reads srcPath and writes chunk files plus a manifest.json into outDir.
 // chunkSize <= 0 defaults to DefaultChunkSize.
 // progress may be nil.

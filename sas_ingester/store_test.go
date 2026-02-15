@@ -168,6 +168,50 @@ func TestChunks(t *testing.T) {
 	}
 }
 
+func TestDossierRoutes(t *testing.T) {
+	s := tempStore(t)
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	s.CreateDossier(&Dossier{ID: "d-routes", OwnerJWTSub: "u", CreatedAt: now})
+
+	// Set per-dossier routes.
+	routes := []DossierRoute{
+		{URL: "https://rag.internal/ingest", AuthMode: "hmac", Secret: "rag-key-123"},
+		{URL: "https://forum.internal/notify", AuthMode: "bearer", Secret: "forum-token"},
+	}
+	if err := s.SetDossierRoutes("d-routes", routes); err != nil {
+		t.Fatal(err)
+	}
+
+	// Retrieve and parse.
+	d, err := s.GetDossier("d-routes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed := d.ParsedRoutes()
+	if len(parsed) != 2 {
+		t.Fatalf("ParsedRoutes len = %d, want 2", len(parsed))
+	}
+	if parsed[0].URL != "https://rag.internal/ingest" {
+		t.Errorf("route[0].URL = %q", parsed[0].URL)
+	}
+	if parsed[0].Secret != "rag-key-123" {
+		t.Errorf("route[0].Secret = %q", parsed[0].Secret)
+	}
+	if parsed[1].AuthMode != "bearer" {
+		t.Errorf("route[1].AuthMode = %q", parsed[1].AuthMode)
+	}
+
+	// Clear routes.
+	if err := s.SetDossierRoutes("d-routes", nil); err != nil {
+		t.Fatal(err)
+	}
+	d, _ = s.GetDossier("d-routes")
+	if parsed := d.ParsedRoutes(); len(parsed) != 0 {
+		t.Errorf("expected empty routes after clear, got %d", len(parsed))
+	}
+}
+
 func TestRoutes(t *testing.T) {
 	s := tempStore(t)
 

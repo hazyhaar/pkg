@@ -94,9 +94,15 @@ func main() {
 	// Start retry loop in background.
 	go retryLoop(ing)
 
+	// --- tus resumable upload handler ---
+	tusIDGen := idgen.Prefixed("tus_", idgen.Default)
+	tusHandler := sas_ingester.NewTusHandler(ing.Store, cfg, tusIDGen)
+
 	// --- HTTP mux with kit context enrichment ---
 	mux := http.NewServeMux()
 	mux.Handle("/upload", contextMiddleware(requestIDGen, uploadHandler(ing)))
+	mux.Handle("/upload/tus", contextMiddleware(requestIDGen, tusCreateHandler(tusHandler, ing)))
+	mux.Handle("/upload/tus/", contextMiddleware(requestIDGen, tusPatchHandler(tusHandler, ing)))
 	mux.Handle("/dossier/", contextMiddleware(requestIDGen, dossierHandler(ing)))
 	mux.HandleFunc("/health", healthHandler(ing, obsDB))
 
@@ -271,6 +277,147 @@ func extractClaims(r *http.Request, secret string) (*sas_ingester.JWTClaims, err
 	}
 	token := strings.TrimPrefix(auth, "Bearer ")
 	return sas_ingester.ParseJWT(token, secret)
+}
+
+// tusCreateHandler handles POST /upload/tus — creates a new resumable upload.
+// tus protocol: client sends Upload-Length, server responds with Location.
+func tusCreateHandler(tus *sas_ingester.TusHandler, ing *sas_ingester.Ingester) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodOptions {
+			w.Header().Set("Tus-Resumable", "1.0.0")
+			w.Header().Set("Tus-Version", "1.0.0")
+			w.Header().Set("Tus-Extension", "creation")
+			w.Header().Set("Tus-Max-Size", fmt.Sprintf("%d", ing.Config.MaxFileBytes()))
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		claims, err := extractClaims(r, ing.Config.JWTSecret)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("auth: %v", err), http.StatusUnauthorized)
+			return
+		}
+
+		dossierID := sas_ingester.ExtractDossierID(claims)
+		if dossierID == "" {
+			dossierID = ing.NewID()
+		}
+
+		totalSize, err := sas_ingester.ParseUploadLength(r.Header.Get("Upload-Length"))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		u, err := tus.Create(dossierID, claims.Sub, totalSize)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("create: %v", err), http.StatusBadRequest)
+			return
+		}
+
+		w.Header().Set("Tus-Resumable", "1.0.0")
+		w.Header().Set("Location", "/upload/tus/"+u.UploadID)
+		w.Header().Set("Upload-Offset", "0")
+		w.WriteHeader(http.StatusCreated)
+	}
+}
+
+// tusPatchHandler handles HEAD and PATCH on /upload/tus/{id}.
+// HEAD returns the current offset; PATCH appends data.
+func tusPatchHandler(tus *sas_ingester.TusHandler, ing *sas_ingester.Ingester) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		uploadID := strings.TrimPrefix(r.URL.Path, "/upload/tus/")
+		if uploadID == "" {
+			http.Error(w, "missing upload id", http.StatusBadRequest)
+			return
+		}
+
+		claims, err := extractClaims(r, ing.Config.JWTSecret)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("auth: %v", err), http.StatusUnauthorized)
+			return
+		}
+
+		switch r.Method {
+		case http.MethodHead:
+			u, err := tus.GetOffset(uploadID)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusNotFound)
+				return
+			}
+			if u.OwnerJWTSub != claims.Sub {
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
+			w.Header().Set("Tus-Resumable", "1.0.0")
+			w.Header().Set("Upload-Offset", fmt.Sprintf("%d", u.OffsetBytes))
+			w.Header().Set("Upload-Length", fmt.Sprintf("%d", u.TotalSize))
+			w.WriteHeader(http.StatusOK)
+
+		case http.MethodPatch:
+			u, err := tus.GetOffset(uploadID)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusNotFound)
+				return
+			}
+			if u.OwnerJWTSub != claims.Sub {
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
+
+			clientOffset, err := sas_ingester.ParseUploadOffset(r.Header.Get("Upload-Offset"))
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+
+			newOffset, err := tus.Patch(uploadID, clientOffset, r.Body)
+			if err != nil {
+				if strings.Contains(err.Error(), "offset mismatch") {
+					http.Error(w, err.Error(), http.StatusConflict)
+				} else {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+				}
+				return
+			}
+
+			w.Header().Set("Tus-Resumable", "1.0.0")
+			w.Header().Set("Upload-Offset", fmt.Sprintf("%d", newOffset))
+
+			// If upload is complete, finalize it.
+			if newOffset == u.TotalSize {
+				result, err := tus.Complete(uploadID)
+				if err != nil {
+					http.Error(w, fmt.Sprintf("complete: %v", err), http.StatusInternalServerError)
+					return
+				}
+
+				// If not deduplicated, run the rest of the ingest pipeline.
+				if !result.Deduplicated {
+					ingestResult, err := ing.IngestFromUpload(result, u.DossierID, claims.Sub)
+					if err != nil {
+						log.Printf("[tus] ingest error: %v", err)
+					} else {
+						result.State = ingestResult.State
+					}
+				}
+
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				json.NewEncoder(w).Encode(result)
+				return
+			}
+
+			w.WriteHeader(http.StatusNoContent)
+
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	}
 }
 
 func retryLoop(ing *sas_ingester.Ingester) {
