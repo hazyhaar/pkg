@@ -1,102 +1,75 @@
 package sas_ingester
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/hazyhaar/pkg/sas_chunker"
 )
 
 // UploadResult holds the result of receiving a file upload.
 type UploadResult struct {
-	SHA256      string `json:"sha256"`
-	SizeBytes   int64  `json:"size_bytes"`
-	ChunkCount  int    `json:"chunk_count"`
-	Deduplicated bool  `json:"deduplicated"`
+	SHA256       string `json:"sha256"`
+	SizeBytes    int64  `json:"size_bytes"`
+	ChunkCount   int    `json:"chunk_count"`
+	State        string `json:"state,omitempty"`
+	Deduplicated bool   `json:"deduplicated"`
 }
 
-// ReceiveFile reads from r, streams to disk in chunks, computes SHA256, and returns the result.
-// If the file already exists (same sha256 + dossierID), it returns Deduplicated=true.
+// ReceiveFile reads from r, streams directly to chunks via sas_chunker.SplitReader
+// (no intermediate temp file), checks dedup, and records the piece in the DB.
+// Manifest.json, Verify() and Assemble() all work out of the box.
 func ReceiveFile(r io.Reader, dossierID string, cfg *Config, store *Store) (*UploadResult, error) {
-	// Stage 1: stream to a temp file while hashing.
-	tmpFile, err := os.CreateTemp(cfg.ChunksDir, "upload-*.tmp")
-	if err != nil {
-		return nil, fmt.Errorf("create temp: %w", err)
-	}
-	tmpPath := tmpFile.Name()
-	defer os.Remove(tmpPath)
-
-	hasher := sha256.New()
+	// Stage 1: stream directly into chunks while hashing.
+	// We use a counting reader to enforce the max file size limit.
 	limited := io.LimitReader(r, cfg.MaxFileBytes()+1) // +1 to detect overflow
-	written, err := io.Copy(tmpFile, io.TeeReader(limited, hasher))
-	tmpFile.Close()
+
+	chunkDir := filepath.Join(cfg.ChunksDir, dossierID, "incoming")
+	manifest, err := sas_chunker.SplitReader(limited, "upload", chunkDir, cfg.ChunkSizeBytes(), nil)
 	if err != nil {
-		return nil, fmt.Errorf("receive upload: %w", err)
+		os.RemoveAll(chunkDir)
+		return nil, fmt.Errorf("chunk stream: %w", err)
 	}
-	if written > cfg.MaxFileBytes() {
+
+	if manifest.OriginalSize > cfg.MaxFileBytes() {
+		os.RemoveAll(chunkDir)
 		return nil, fmt.Errorf("file exceeds max size (%d MB)", cfg.MaxFileMB)
 	}
 
-	hash := hex.EncodeToString(hasher.Sum(nil))
+	hash := manifest.OriginalSHA256
 
 	// Stage 2: check dedup.
 	existing, err := store.GetPiece(hash, dossierID)
 	if err != nil {
+		os.RemoveAll(chunkDir)
 		return nil, fmt.Errorf("dedup check: %w", err)
 	}
 	if existing != nil {
+		os.RemoveAll(chunkDir)
 		return &UploadResult{
 			SHA256:       hash,
-			SizeBytes:    written,
+			SizeBytes:    manifest.OriginalSize,
 			Deduplicated: true,
 		}, nil
 	}
 
-	// Stage 3: chunk the temp file.
-	chunkSize := cfg.ChunkSizeBytes()
-	chunkDir := filepath.Join(cfg.ChunksDir, dossierID, hash)
-	if err := os.MkdirAll(chunkDir, 0755); err != nil {
-		return nil, fmt.Errorf("create chunk dir: %w", err)
+	// Stage 3: rename the incoming dir to its final location keyed by hash.
+	finalDir := filepath.Join(cfg.ChunksDir, dossierID, hash)
+	if err := os.MkdirAll(filepath.Dir(finalDir), 0755); err != nil {
+		return nil, fmt.Errorf("prepare dir: %w", err)
+	}
+	if err := os.Rename(chunkDir, finalDir); err != nil {
+		// Rename can fail across filesystems; fall back to keeping incoming dir.
+		finalDir = chunkDir
 	}
 
-	src, err := os.Open(tmpPath)
-	if err != nil {
-		return nil, fmt.Errorf("reopen temp: %w", err)
-	}
-	defer src.Close()
-
-	buf := make([]byte, chunkSize)
-	var chunkIdx int
-	for {
-		n, err := io.ReadFull(src, buf)
-		if n == 0 {
-			break
-		}
-		data := buf[:n]
-
-		chunkHasher := sha256.New()
-		chunkHasher.Write(data)
-		chunkHash := hex.EncodeToString(chunkHasher.Sum(nil))
-
-		chunkPath := filepath.Join(chunkDir, fmt.Sprintf("chunk_%05d.bin", chunkIdx))
-		if err2 := os.WriteFile(chunkPath, data, 0644); err2 != nil {
-			return nil, fmt.Errorf("write chunk %d: %w", chunkIdx, err2)
-		}
-
-		if err2 := store.InsertChunk(hash, dossierID, chunkIdx, chunkHash, true); err2 != nil {
-			return nil, fmt.Errorf("record chunk %d: %w", chunkIdx, err2)
-		}
-
-		chunkIdx++
-
-		if err == io.EOF || err == io.ErrUnexpectedEOF {
-			break
-		}
-		if err != nil {
-			return nil, fmt.Errorf("read chunk %d: %w", chunkIdx, err)
+	// Record each chunk in the DB for tracking.
+	for _, cm := range manifest.Chunks {
+		if err := store.InsertChunk(hash, dossierID, cm.Index, cm.SHA256, true); err != nil {
+			return nil, fmt.Errorf("record chunk %d: %w", cm.Index, err)
 		}
 	}
 
@@ -106,7 +79,7 @@ func ReceiveFile(r io.Reader, dossierID string, cfg *Config, store *Store) (*Upl
 		SHA256:        hash,
 		DossierID:     dossierID,
 		State:         "received",
-		SizeBytes:     written,
+		SizeBytes:     manifest.OriginalSize,
 		InjectionRisk: "none",
 		ClamAVStatus:  "pending",
 		CreatedAt:     now,
@@ -117,7 +90,7 @@ func ReceiveFile(r io.Reader, dossierID string, cfg *Config, store *Store) (*Upl
 
 	return &UploadResult{
 		SHA256:     hash,
-		SizeBytes:  written,
-		ChunkCount: chunkIdx,
+		SizeBytes:  manifest.OriginalSize,
+		ChunkCount: manifest.TotalChunks,
 	}, nil
 }

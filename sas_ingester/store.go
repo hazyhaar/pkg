@@ -2,6 +2,7 @@ package sas_ingester
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -63,7 +64,8 @@ CREATE TABLE IF NOT EXISTS chunks (
     idx             INTEGER NOT NULL,
     chunk_sha256    TEXT NOT NULL,
     received        INTEGER DEFAULT 0,
-    PRIMARY KEY (piece_sha256, dossier_id, idx)
+    PRIMARY KEY (piece_sha256, dossier_id, idx),
+    FOREIGN KEY (piece_sha256, dossier_id) REFERENCES pieces(sha256, dossier_id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS routes_pending (
@@ -75,12 +77,27 @@ CREATE TABLE IF NOT EXISTS routes_pending (
     reviewed        INTEGER DEFAULT 0,
     attempts        INTEGER DEFAULT 0,
     last_error      TEXT,
-    next_retry_at   TEXT
+    next_retry_at   TEXT,
+    original_token  TEXT DEFAULT '',
+    FOREIGN KEY (piece_sha256, dossier_id) REFERENCES pieces(sha256, dossier_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS tus_uploads (
+    upload_id       TEXT PRIMARY KEY,
+    dossier_id      TEXT NOT NULL,
+    owner_jwt_sub   TEXT NOT NULL,
+    total_size      INTEGER NOT NULL,
+    offset_bytes    INTEGER NOT NULL DEFAULT 0,
+    chunk_dir       TEXT NOT NULL,
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL,
+    completed       INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_pieces_state   ON pieces(state);
 CREATE INDEX IF NOT EXISTS idx_routes_retry   ON routes_pending(next_retry_at);
 CREATE INDEX IF NOT EXISTS idx_dossiers_owner ON dossiers(owner_jwt_sub);
+CREATE INDEX IF NOT EXISTS idx_tus_dossier    ON tus_uploads(dossier_id);
 `
 	_, err := s.db.Exec(ddl)
 	return err
@@ -88,13 +105,36 @@ CREATE INDEX IF NOT EXISTS idx_dossiers_owner ON dossiers(owner_jwt_sub);
 
 // --- Dossiers ---
 
+// DossierRoute defines a per-dossier webhook destination stored as JSON
+// in the dossiers.routes column. When present, these override the global
+// webhook config for that dossier.
+type DossierRoute struct {
+	URL           string `json:"url"`
+	AuthMode      string `json:"auth_mode"`      // opaque_only | jwt_passthru
+	Secret        string `json:"secret,omitempty"` // HMAC signing key
+	RequireReview bool   `json:"require_review,omitempty"`
+}
+
 // Dossier represents a dossier row.
 type Dossier struct {
 	ID           string `json:"id"`
 	OwnerJWTSub  string `json:"-"`
 	Name         string `json:"name,omitempty"`
-	Routes       string `json:"routes,omitempty"`
+	Routes       string `json:"routes,omitempty"` // JSON array of DossierRoute
 	CreatedAt    string `json:"created_at"`
+}
+
+// ParsedRoutes returns the per-dossier routes parsed from JSON.
+// Returns nil if the column is empty or invalid.
+func (d *Dossier) ParsedRoutes() []DossierRoute {
+	if d.Routes == "" {
+		return nil
+	}
+	var routes []DossierRoute
+	if err := json.Unmarshal([]byte(d.Routes), &routes); err != nil {
+		return nil
+	}
+	return routes
 }
 
 // CreateDossier inserts a new dossier.
@@ -140,22 +180,25 @@ func (s *Store) EnsureDossier(id, ownerSub string) error {
 	return nil
 }
 
-// DeleteDossier deletes a dossier by ID (CASCADE deletes pieces, chunks).
-func (s *Store) DeleteDossier(id string) error {
-	// Also clean routes_pending manually since it has no FK.
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
+// SetDossierRoutes updates the per-dossier routes JSON. Pass nil to clear.
+func (s *Store) SetDossierRoutes(id string, routes []DossierRoute) error {
+	var routesJSON string
+	if routes != nil {
+		data, err := json.Marshal(routes)
+		if err != nil {
+			return fmt.Errorf("marshal routes: %w", err)
+		}
+		routesJSON = string(data)
 	}
-	defer tx.Rollback()
+	_, err := s.db.Exec(`UPDATE dossiers SET routes = ? WHERE id = ?`, routesJSON, id)
+	return err
+}
 
-	if _, err := tx.Exec(`DELETE FROM routes_pending WHERE dossier_id = ?`, id); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(`DELETE FROM dossiers WHERE id = ?`, id); err != nil {
-		return err
-	}
-	return tx.Commit()
+// DeleteDossier deletes a dossier by ID.
+// CASCADE on pieces → chunks + routes_pending handles cleanup.
+func (s *Store) DeleteDossier(id string) error {
+	_, err := s.db.Exec(`DELETE FROM dossiers WHERE id = ?`, id)
+	return err
 }
 
 // --- Pieces ---
@@ -311,12 +354,13 @@ type RoutePending struct {
 	PieceSHA256   string `json:"piece_sha256"`
 	DossierID     string `json:"dossier_id"`
 	Target        string `json:"target"`
-	AuthMode      string `json:"auth_mode"`
+	AuthMode      string `json:"auth_mode"` // opaque_only | jwt_passthru
 	RequireReview bool   `json:"require_review"`
 	Reviewed      bool   `json:"reviewed"`
 	Attempts      int    `json:"attempts"`
 	LastError     string `json:"last_error,omitempty"`
 	NextRetryAt   string `json:"next_retry_at,omitempty"`
+	OriginalToken string `json:"-"` // JWT for jwt_passthru; never serialized
 }
 
 // InsertRoute inserts a pending route.
@@ -326,9 +370,9 @@ func (s *Store) InsertRoute(r *RoutePending) error {
 		reqReview = 1
 	}
 	_, err := s.db.Exec(
-		`INSERT INTO routes_pending (piece_sha256, dossier_id, target, auth_mode, require_review, reviewed, attempts, last_error, next_retry_at)
-		 VALUES (?, ?, ?, ?, ?, 0, 0, '', '')`,
-		r.PieceSHA256, r.DossierID, r.Target, r.AuthMode, reqReview,
+		`INSERT INTO routes_pending (piece_sha256, dossier_id, target, auth_mode, require_review, reviewed, attempts, last_error, next_retry_at, original_token)
+		 VALUES (?, ?, ?, ?, ?, 0, 0, '', '', ?)`,
+		r.PieceSHA256, r.DossierID, r.Target, r.AuthMode, reqReview, r.OriginalToken,
 	)
 	return err
 }
@@ -336,7 +380,7 @@ func (s *Store) InsertRoute(r *RoutePending) error {
 // ListRoutes returns pending routes for a piece.
 func (s *Store) ListRoutes(pieceSHA256, dossierID string) ([]*RoutePending, error) {
 	rows, err := s.db.Query(
-		`SELECT piece_sha256, dossier_id, target, auth_mode, require_review, reviewed, attempts, last_error, next_retry_at
+		`SELECT piece_sha256, dossier_id, target, auth_mode, require_review, reviewed, attempts, last_error, next_retry_at, original_token
 		 FROM routes_pending WHERE piece_sha256 = ? AND dossier_id = ?`, pieceSHA256, dossierID,
 	)
 	if err != nil {
@@ -349,7 +393,7 @@ func (s *Store) ListRoutes(pieceSHA256, dossierID string) ([]*RoutePending, erro
 		r := &RoutePending{}
 		var reqReview, reviewed int
 		if err := rows.Scan(&r.PieceSHA256, &r.DossierID, &r.Target, &r.AuthMode,
-			&reqReview, &reviewed, &r.Attempts, &r.LastError, &r.NextRetryAt); err != nil {
+			&reqReview, &reviewed, &r.Attempts, &r.LastError, &r.NextRetryAt, &r.OriginalToken); err != nil {
 			return nil, err
 		}
 		r.RequireReview = reqReview == 1
@@ -381,7 +425,7 @@ func (s *Store) MarkRouteReviewed(pieceSHA256, dossierID, target string) error {
 // ListRetryableRoutes returns routes due for retry.
 func (s *Store) ListRetryableRoutes(now string) ([]*RoutePending, error) {
 	rows, err := s.db.Query(
-		`SELECT piece_sha256, dossier_id, target, auth_mode, require_review, reviewed, attempts, last_error, next_retry_at
+		`SELECT piece_sha256, dossier_id, target, auth_mode, require_review, reviewed, attempts, last_error, next_retry_at, original_token
 		 FROM routes_pending
 		 WHERE attempts < 5
 		   AND (require_review = 0 OR reviewed = 1)
@@ -398,7 +442,7 @@ func (s *Store) ListRetryableRoutes(now string) ([]*RoutePending, error) {
 		r := &RoutePending{}
 		var reqReview, reviewed int
 		if err := rows.Scan(&r.PieceSHA256, &r.DossierID, &r.Target, &r.AuthMode,
-			&reqReview, &reviewed, &r.Attempts, &r.LastError, &r.NextRetryAt); err != nil {
+			&reqReview, &reviewed, &r.Attempts, &r.LastError, &r.NextRetryAt, &r.OriginalToken); err != nil {
 			return nil, err
 		}
 		r.RequireReview = reqReview == 1
@@ -414,5 +458,76 @@ func (s *Store) DeleteRoute(pieceSHA256, dossierID, target string) error {
 		`DELETE FROM routes_pending WHERE piece_sha256 = ? AND dossier_id = ? AND target = ?`,
 		pieceSHA256, dossierID, target,
 	)
+	return err
+}
+
+// --- tus uploads ---
+
+// TusUpload represents a resumable upload in progress.
+type TusUpload struct {
+	UploadID    string `json:"upload_id"`
+	DossierID   string `json:"dossier_id"`
+	OwnerJWTSub string `json:"-"`
+	TotalSize   int64  `json:"total_size"`
+	OffsetBytes int64  `json:"offset_bytes"`
+	ChunkDir    string `json:"chunk_dir"`
+	CreatedAt   string `json:"created_at"`
+	UpdatedAt   string `json:"updated_at"`
+	Completed   bool   `json:"completed"`
+}
+
+// CreateTusUpload inserts a new tus upload record.
+func (s *Store) CreateTusUpload(u *TusUpload) error {
+	completed := 0
+	if u.Completed {
+		completed = 1
+	}
+	_, err := s.db.Exec(
+		`INSERT INTO tus_uploads (upload_id, dossier_id, owner_jwt_sub, total_size, offset_bytes, chunk_dir, created_at, updated_at, completed)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		u.UploadID, u.DossierID, u.OwnerJWTSub, u.TotalSize, u.OffsetBytes, u.ChunkDir, u.CreatedAt, u.UpdatedAt, completed,
+	)
+	return err
+}
+
+// GetTusUpload returns a tus upload by ID. Returns nil, nil if not found.
+func (s *Store) GetTusUpload(uploadID string) (*TusUpload, error) {
+	u := &TusUpload{}
+	var completed int
+	err := s.db.QueryRow(
+		`SELECT upload_id, dossier_id, owner_jwt_sub, total_size, offset_bytes, chunk_dir, created_at, updated_at, completed
+		 FROM tus_uploads WHERE upload_id = ?`, uploadID,
+	).Scan(&u.UploadID, &u.DossierID, &u.OwnerJWTSub, &u.TotalSize, &u.OffsetBytes, &u.ChunkDir, &u.CreatedAt, &u.UpdatedAt, &completed)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	u.Completed = completed == 1
+	return u, nil
+}
+
+// UpdateTusOffset updates the offset and updated_at for a tus upload.
+func (s *Store) UpdateTusOffset(uploadID string, offset int64) error {
+	_, err := s.db.Exec(
+		`UPDATE tus_uploads SET offset_bytes = ?, updated_at = ? WHERE upload_id = ?`,
+		offset, time.Now().UTC().Format(time.RFC3339), uploadID,
+	)
+	return err
+}
+
+// CompleteTusUpload marks a tus upload as completed.
+func (s *Store) CompleteTusUpload(uploadID string) error {
+	_, err := s.db.Exec(
+		`UPDATE tus_uploads SET completed = 1, updated_at = ? WHERE upload_id = ?`,
+		time.Now().UTC().Format(time.RFC3339), uploadID,
+	)
+	return err
+}
+
+// DeleteTusUpload removes a tus upload record.
+func (s *Store) DeleteTusUpload(uploadID string) error {
+	_, err := s.db.Exec(`DELETE FROM tus_uploads WHERE upload_id = ?`, uploadID)
 	return err
 }

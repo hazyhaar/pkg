@@ -78,12 +78,11 @@ func ParseJWT(tokenStr, secret string) (*JWTClaims, error) {
 	return &claims, nil
 }
 
-// ExtractDossierID resolves the dossier_id: from the JWT claim, or from the sub if absent.
+// ExtractDossierID resolves the dossier_id from the JWT claim.
+// Returns an empty string if the JWT does not carry a dossier_id — the caller
+// must then generate an opaque server-side ID (never derive from Sub).
 func ExtractDossierID(claims *JWTClaims) string {
-	if claims.DossierID != "" {
-		return claims.DossierID
-	}
-	return claims.Sub
+	return claims.DossierID
 }
 
 func base64URLDecode(s string) ([]byte, error) {

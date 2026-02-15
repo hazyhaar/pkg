@@ -27,7 +27,8 @@ clamav:
 webhooks:
   - name: "test"
     url: "https://example.com/hook"
-    auth_mode: "bearer"
+    auth_mode: "opaque_only"
+    secret: "webhook-hmac-key"
 jwt_secret: "secret123"
 `
 	f, err := os.CreateTemp("", "config_test_*.yaml")
@@ -63,8 +64,16 @@ func TestValidate_BadAuthMode(t *testing.T) {
 
 func TestValidate_MissingURL(t *testing.T) {
 	cfg := DefaultConfig()
-	cfg.Webhooks = []WebhookTarget{{AuthMode: "bearer"}}
+	cfg.Webhooks = []WebhookTarget{{AuthMode: "opaque_only"}}
 	if err := cfg.Validate(); err == nil {
 		t.Error("expected validation error for missing url")
+	}
+}
+
+func TestValidate_BadAuthMode_Legacy(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Webhooks = []WebhookTarget{{URL: "http://x", AuthMode: "bearer"}}
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected validation error for legacy bearer auth_mode")
 	}
 }

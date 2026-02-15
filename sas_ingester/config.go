@@ -29,7 +29,8 @@ type ClamAVConfig struct {
 type WebhookTarget struct {
 	Name          string `yaml:"name"`
 	URL           string `yaml:"url"`
-	AuthMode      string `yaml:"auth_mode"`
+	AuthMode      string `yaml:"auth_mode"`      // opaque_only | jwt_passthru
+	Secret        string `yaml:"secret"`          // per-webhook secret (HMAC signing key)
 	RequireReview bool   `yaml:"require_review"`
 }
 
@@ -80,9 +81,12 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("webhook[%d]: url is required", i)
 		}
 		switch wh.AuthMode {
-		case "none", "bearer", "hmac", "":
+		case "opaque_only", "":
+			// Opaque mode: never sends JWT or user identity downstream.
+		case "jwt_passthru":
+			// Passthru mode: forwards the original JWT for identified services.
 		default:
-			return fmt.Errorf("webhook[%d]: unsupported auth_mode %q", i, wh.AuthMode)
+			return fmt.Errorf("webhook[%d]: unsupported auth_mode %q (use opaque_only or jwt_passthru)", i, wh.AuthMode)
 		}
 	}
 	return nil

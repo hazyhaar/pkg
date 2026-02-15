@@ -71,9 +71,9 @@ func TestExtractDossierID(t *testing.T) {
 		t.Errorf("got %q, want d-explicit", got)
 	}
 
-	// Falls back to sub.
+	// No dossier_id → returns empty string (caller must generate opaque ID).
 	c2 := &JWTClaims{Sub: "user-1"}
-	if got := ExtractDossierID(c2); got != "user-1" {
-		t.Errorf("got %q, want user-1", got)
+	if got := ExtractDossierID(c2); got != "" {
+		t.Errorf("got %q, want empty string (never derive from sub)", got)
 	}
 }
