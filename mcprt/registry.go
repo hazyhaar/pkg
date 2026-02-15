@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS mcp_tools_registry (
 	tool_category TEXT NOT NULL,
 	description TEXT NOT NULL,
 	input_schema TEXT NOT NULL,
-	handler_type TEXT NOT NULL CHECK(handler_type IN ('sql_query', 'sql_script')),
+	handler_type TEXT NOT NULL CHECK(handler_type IN ('sql_query', 'sql_script', 'go_function')),
 	handler_config TEXT NOT NULL,
 	is_active INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0, 1)),
 	created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
@@ -160,17 +160,22 @@ func (r *Registry) ExecuteTool(ctx context.Context, toolName string, params map[
 		}
 	}
 
-	var handler ToolHandler
 	switch t.HandlerType {
 	case HandlerSQLQuery:
-		handler = &SQLQueryHandler{DB: r.db}
+		return (&SQLQueryHandler{DB: r.db}).Execute(ctx, t, params)
 	case HandlerSQLScript:
-		handler = &SQLScriptHandler{DB: r.db, NewID: r.newID}
+		return (&SQLScriptHandler{DB: r.db, NewID: r.newID}).Execute(ctx, t, params)
+	case HandlerGoFunction:
+		r.mu.RLock()
+		fn, ok := r.goFuncs[toolName]
+		r.mu.RUnlock()
+		if !ok {
+			return "", fmt.Errorf("go function not registered: %s", toolName)
+		}
+		return fn(ctx, params)
 	default:
 		return "", fmt.Errorf("unsupported handler type: %s", t.HandlerType)
 	}
-
-	return handler.Execute(ctx, t, params)
 }
 
 // RunWatcher polls for database changes and reloads tools automatically.

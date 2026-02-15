@@ -40,6 +40,7 @@ type Registry struct {
 }
 
 const (
-	HandlerSQLQuery  = "sql_query"
-	HandlerSQLScript = "sql_script"
+	HandlerSQLQuery    = "sql_query"
+	HandlerSQLScript   = "sql_script"
+	HandlerGoFunction  = "go_function"
 )

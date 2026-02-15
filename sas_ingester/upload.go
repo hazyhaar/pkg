@@ -1,6 +1,8 @@
 package sas_ingester
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
@@ -27,7 +29,13 @@ func ReceiveFile(r io.Reader, dossierID string, cfg *Config, store *Store) (*Upl
 	// We use a counting reader to enforce the max file size limit.
 	limited := io.LimitReader(r, cfg.MaxFileBytes()+1) // +1 to detect overflow
 
-	chunkDir := filepath.Join(cfg.ChunksDir, dossierID, "incoming")
+	// Use a unique suffix to prevent race conditions when two uploads
+	// for the same dossier happen concurrently.
+	var suffix [8]byte
+	if _, err := rand.Read(suffix[:]); err != nil {
+		return nil, fmt.Errorf("generate upload suffix: %w", err)
+	}
+	chunkDir := filepath.Join(cfg.ChunksDir, dossierID, "incoming-"+hex.EncodeToString(suffix[:]))
 	manifest, err := sas_chunker.SplitReader(limited, "upload", chunkDir, cfg.ChunkSizeBytes(), nil)
 	if err != nil {
 		os.RemoveAll(chunkDir)
