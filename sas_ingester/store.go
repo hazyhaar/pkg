@@ -78,6 +78,7 @@ CREATE TABLE IF NOT EXISTS routes_pending (
     attempts        INTEGER DEFAULT 0,
     last_error      TEXT,
     next_retry_at   TEXT,
+    original_token  TEXT DEFAULT '',
     FOREIGN KEY (piece_sha256, dossier_id) REFERENCES pieces(sha256, dossier_id) ON DELETE CASCADE
 );
 
@@ -109,8 +110,8 @@ CREATE INDEX IF NOT EXISTS idx_tus_dossier    ON tus_uploads(dossier_id);
 // webhook config for that dossier.
 type DossierRoute struct {
 	URL           string `json:"url"`
-	AuthMode      string `json:"auth_mode"`      // none | bearer | hmac
-	Secret        string `json:"secret,omitempty"`
+	AuthMode      string `json:"auth_mode"`      // opaque_only | jwt_passthru
+	Secret        string `json:"secret,omitempty"` // HMAC signing key
 	RequireReview bool   `json:"require_review,omitempty"`
 }
 
@@ -353,12 +354,13 @@ type RoutePending struct {
 	PieceSHA256   string `json:"piece_sha256"`
 	DossierID     string `json:"dossier_id"`
 	Target        string `json:"target"`
-	AuthMode      string `json:"auth_mode"`
+	AuthMode      string `json:"auth_mode"` // opaque_only | jwt_passthru
 	RequireReview bool   `json:"require_review"`
 	Reviewed      bool   `json:"reviewed"`
 	Attempts      int    `json:"attempts"`
 	LastError     string `json:"last_error,omitempty"`
 	NextRetryAt   string `json:"next_retry_at,omitempty"`
+	OriginalToken string `json:"-"` // JWT for jwt_passthru; never serialized
 }
 
 // InsertRoute inserts a pending route.
@@ -368,9 +370,9 @@ func (s *Store) InsertRoute(r *RoutePending) error {
 		reqReview = 1
 	}
 	_, err := s.db.Exec(
-		`INSERT INTO routes_pending (piece_sha256, dossier_id, target, auth_mode, require_review, reviewed, attempts, last_error, next_retry_at)
-		 VALUES (?, ?, ?, ?, ?, 0, 0, '', '')`,
-		r.PieceSHA256, r.DossierID, r.Target, r.AuthMode, reqReview,
+		`INSERT INTO routes_pending (piece_sha256, dossier_id, target, auth_mode, require_review, reviewed, attempts, last_error, next_retry_at, original_token)
+		 VALUES (?, ?, ?, ?, ?, 0, 0, '', '', ?)`,
+		r.PieceSHA256, r.DossierID, r.Target, r.AuthMode, reqReview, r.OriginalToken,
 	)
 	return err
 }
@@ -378,7 +380,7 @@ func (s *Store) InsertRoute(r *RoutePending) error {
 // ListRoutes returns pending routes for a piece.
 func (s *Store) ListRoutes(pieceSHA256, dossierID string) ([]*RoutePending, error) {
 	rows, err := s.db.Query(
-		`SELECT piece_sha256, dossier_id, target, auth_mode, require_review, reviewed, attempts, last_error, next_retry_at
+		`SELECT piece_sha256, dossier_id, target, auth_mode, require_review, reviewed, attempts, last_error, next_retry_at, original_token
 		 FROM routes_pending WHERE piece_sha256 = ? AND dossier_id = ?`, pieceSHA256, dossierID,
 	)
 	if err != nil {
@@ -391,7 +393,7 @@ func (s *Store) ListRoutes(pieceSHA256, dossierID string) ([]*RoutePending, erro
 		r := &RoutePending{}
 		var reqReview, reviewed int
 		if err := rows.Scan(&r.PieceSHA256, &r.DossierID, &r.Target, &r.AuthMode,
-			&reqReview, &reviewed, &r.Attempts, &r.LastError, &r.NextRetryAt); err != nil {
+			&reqReview, &reviewed, &r.Attempts, &r.LastError, &r.NextRetryAt, &r.OriginalToken); err != nil {
 			return nil, err
 		}
 		r.RequireReview = reqReview == 1
@@ -423,7 +425,7 @@ func (s *Store) MarkRouteReviewed(pieceSHA256, dossierID, target string) error {
 // ListRetryableRoutes returns routes due for retry.
 func (s *Store) ListRetryableRoutes(now string) ([]*RoutePending, error) {
 	rows, err := s.db.Query(
-		`SELECT piece_sha256, dossier_id, target, auth_mode, require_review, reviewed, attempts, last_error, next_retry_at
+		`SELECT piece_sha256, dossier_id, target, auth_mode, require_review, reviewed, attempts, last_error, next_retry_at, original_token
 		 FROM routes_pending
 		 WHERE attempts < 5
 		   AND (require_review = 0 OR reviewed = 1)
@@ -440,7 +442,7 @@ func (s *Store) ListRetryableRoutes(now string) ([]*RoutePending, error) {
 		r := &RoutePending{}
 		var reqReview, reviewed int
 		if err := rows.Scan(&r.PieceSHA256, &r.DossierID, &r.Target, &r.AuthMode,
-			&reqReview, &reviewed, &r.Attempts, &r.LastError, &r.NextRetryAt); err != nil {
+			&reqReview, &reviewed, &r.Attempts, &r.LastError, &r.NextRetryAt, &r.OriginalToken); err != nil {
 			return nil, err
 		}
 		r.RequireReview = reqReview == 1

@@ -34,8 +34,9 @@ func main() {
 		log.Fatalf("create chunks dir: %v", err)
 	}
 
-	// --- Trace store (raw "sqlite" driver to avoid recursion) ---
-	traceDB, err := sql.Open("sqlite", cfg.DBPath+"?_journal_mode=WAL&_busy_timeout=5000")
+	// --- Trace store (separate DB to avoid write contention, raw "sqlite" to avoid recursion) ---
+	traceDBPath := filepath.Join(filepath.Dir(cfg.DBPath), "sas_traces.db")
+	traceDB, err := sql.Open("sqlite", traceDBPath+"?_journal_mode=WAL&_busy_timeout=5000")
 	if err != nil {
 		log.Fatalf("trace db: %v", err)
 	}
@@ -100,11 +101,11 @@ func main() {
 
 	// --- HTTP mux with kit context enrichment ---
 	mux := http.NewServeMux()
-	mux.Handle("/upload", contextMiddleware(requestIDGen, uploadHandler(ing)))
-	mux.Handle("/upload/tus", contextMiddleware(requestIDGen, tusCreateHandler(tusHandler, ing)))
-	mux.Handle("/upload/tus/", contextMiddleware(requestIDGen, tusPatchHandler(tusHandler, ing)))
-	mux.Handle("/dossier/", contextMiddleware(requestIDGen, dossierHandler(ing)))
-	mux.HandleFunc("/health", healthHandler(ing, obsDB))
+	mux.Handle("/v1/ingest", contextMiddleware(requestIDGen, uploadHandler(ing)))
+	mux.Handle("/v1/ingest/tus", contextMiddleware(requestIDGen, tusCreateHandler(tusHandler, ing)))
+	mux.Handle("/v1/ingest/tus/", contextMiddleware(requestIDGen, tusPatchHandler(tusHandler, ing)))
+	mux.Handle("/v1/dossiers/", contextMiddleware(requestIDGen, dossierHandler(ing)))
+	mux.HandleFunc("/v1/health", healthHandler(ing, obsDB))
 
 	log.Printf("sas_ingester listening on %s", cfg.Listen)
 	if err := http.ListenAndServe(cfg.Listen, mux); err != nil {
@@ -141,9 +142,13 @@ func uploadHandler(ing *sas_ingester.Ingester) http.HandlerFunc {
 			return
 		}
 
-		dossierID := sas_ingester.ExtractDossierID(claims)
+		// Resolve dossier_id: query param > JWT claim > generate new.
+		dossierID := r.URL.Query().Get("dossier_id")
 		if dossierID == "" {
-			// No dossier_id in JWT — generate an opaque server-side ID.
+			dossierID = sas_ingester.ExtractDossierID(claims)
+		}
+		if dossierID == "" {
+			// No dossier_id in query or JWT — generate an opaque server-side ID.
 			// Never derive from claims.Sub to preserve identity opacity.
 			dossierID = ing.NewID()
 		}
@@ -160,7 +165,9 @@ func uploadHandler(ing *sas_ingester.Ingester) http.HandlerFunc {
 		}
 		defer file.Close()
 
-		result, err := ing.Ingest(file, dossierID, claims.Sub)
+		// Capture the original JWT token for jwt_passthru routes.
+		originalToken := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		result, err := ing.IngestWithToken(file, dossierID, claims.Sub, originalToken)
 		if err != nil {
 			log.Printf("[upload] req=%s error: %v", kit.GetRequestID(r.Context()), err)
 			http.Error(w, fmt.Sprintf("ingest: %v", err), http.StatusInternalServerError)
@@ -171,7 +178,7 @@ func uploadHandler(ing *sas_ingester.Ingester) http.HandlerFunc {
 		if result.State == "blocked" {
 			w.WriteHeader(http.StatusForbidden)
 		} else {
-			w.WriteHeader(http.StatusOK)
+			w.WriteHeader(http.StatusCreated)
 		}
 		json.NewEncoder(w).Encode(result)
 	}
@@ -179,8 +186,8 @@ func uploadHandler(ing *sas_ingester.Ingester) http.HandlerFunc {
 
 func dossierHandler(ing *sas_ingester.Ingester) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Extract dossier ID from path: /dossier/{id}
-		id := strings.TrimPrefix(r.URL.Path, "/dossier/")
+		// Extract dossier ID from path: /v1/dossiers/{id}
+		id := strings.TrimPrefix(r.URL.Path, "/v1/dossiers/")
 		if id == "" {
 			http.Error(w, "missing dossier id", http.StatusBadRequest)
 			return
@@ -228,9 +235,15 @@ func dossierHandler(ing *sas_ingester.Ingester) http.HandlerFunc {
 				http.Error(w, "forbidden", http.StatusForbidden)
 				return
 			}
+			// SQLite first (CASCADE cleans chunks + routes), then filesystem.
 			if err := ing.Store.DeleteDossier(id); err != nil {
 				http.Error(w, "delete failed", http.StatusInternalServerError)
 				return
+			}
+			// Remove chunk blobs from disk.
+			blobDir := filepath.Join(ing.Config.ChunksDir, id)
+			if err := os.RemoveAll(blobDir); err != nil {
+				log.Printf("[dossier] cleanup blobs %s: %v", id, err)
 			}
 			w.WriteHeader(http.StatusNoContent)
 
@@ -320,7 +333,7 @@ func tusCreateHandler(tus *sas_ingester.TusHandler, ing *sas_ingester.Ingester) 
 		}
 
 		w.Header().Set("Tus-Resumable", "1.0.0")
-		w.Header().Set("Location", "/upload/tus/"+u.UploadID)
+		w.Header().Set("Location", "/v1/ingest/tus/"+u.UploadID)
 		w.Header().Set("Upload-Offset", "0")
 		w.WriteHeader(http.StatusCreated)
 	}
@@ -330,7 +343,7 @@ func tusCreateHandler(tus *sas_ingester.TusHandler, ing *sas_ingester.Ingester) 
 // HEAD returns the current offset; PATCH appends data.
 func tusPatchHandler(tus *sas_ingester.TusHandler, ing *sas_ingester.Ingester) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		uploadID := strings.TrimPrefix(r.URL.Path, "/upload/tus/")
+		uploadID := strings.TrimPrefix(r.URL.Path, "/v1/ingest/tus/")
 		if uploadID == "" {
 			http.Error(w, "missing upload id", http.StatusBadRequest)
 			return
@@ -398,7 +411,8 @@ func tusPatchHandler(tus *sas_ingester.TusHandler, ing *sas_ingester.Ingester) h
 
 				// If not deduplicated, run the rest of the ingest pipeline.
 				if !result.Deduplicated {
-					ingestResult, err := ing.IngestFromUpload(result, u.DossierID, claims.Sub)
+					originalToken := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+					ingestResult, err := ing.IngestFromUploadWithToken(result, u.DossierID, claims.Sub, originalToken)
 					if err != nil {
 						log.Printf("[tus] ingest error: %v", err)
 					} else {

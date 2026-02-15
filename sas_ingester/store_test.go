@@ -176,8 +176,8 @@ func TestDossierRoutes(t *testing.T) {
 
 	// Set per-dossier routes.
 	routes := []DossierRoute{
-		{URL: "https://rag.internal/ingest", AuthMode: "hmac", Secret: "rag-key-123"},
-		{URL: "https://forum.internal/notify", AuthMode: "bearer", Secret: "forum-token"},
+		{URL: "https://rag.internal/ingest", AuthMode: "opaque_only", Secret: "rag-key-123"},
+		{URL: "https://forum.internal/notify", AuthMode: "jwt_passthru", Secret: "forum-key"},
 	}
 	if err := s.SetDossierRoutes("d-routes", routes); err != nil {
 		t.Fatal(err)
@@ -198,7 +198,7 @@ func TestDossierRoutes(t *testing.T) {
 	if parsed[0].Secret != "rag-key-123" {
 		t.Errorf("route[0].Secret = %q", parsed[0].Secret)
 	}
-	if parsed[1].AuthMode != "bearer" {
+	if parsed[1].AuthMode != "jwt_passthru" {
 		t.Errorf("route[1].AuthMode = %q", parsed[1].AuthMode)
 	}
 
@@ -223,7 +223,7 @@ func TestRoutes(t *testing.T) {
 		PieceSHA256: "sha2",
 		DossierID:   "d-300",
 		Target:      "https://example.com/hook",
-		AuthMode:    "bearer",
+		AuthMode:    "opaque_only",
 	}
 	if err := s.InsertRoute(r); err != nil {
 		t.Fatal(err)

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // scanHeaderSize is the amount of data read for structural checks.
@@ -22,9 +23,65 @@ type ScanResult struct {
 	Blocked  bool     `json:"blocked"`
 }
 
-// ScanFile runs all security checks on a file without loading it entirely
-// into memory. Structural checks use an 8 KiB header + file size; ClamAV
-// reads the file itself via its socket protocol.
+// ScanChunks runs security checks across multiple chunk files. It scans the
+// first chunk for magic bytes, polyglot, zip bomb, and macro detection. The
+// last chunk is also scanned for polyglot and macro (trailing payloads).
+// ClamAV is invoked on each chunk.
+func ScanChunks(chunkDir string, chunkCount int, cfg *Config) (*ScanResult, error) {
+	if chunkCount == 0 {
+		return &ScanResult{ClamAV: "skipped"}, nil
+	}
+
+	result := &ScanResult{ClamAV: "skipped"}
+
+	// Scan first chunk (magic bytes, zip bomb, polyglot, macro).
+	firstChunk := filepath.Join(chunkDir, fmt.Sprintf("chunk_%05d.bin", 0))
+	first, err := ScanFile(firstChunk, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("scan first chunk: %w", err)
+	}
+	result.Warnings = append(result.Warnings, first.Warnings...)
+	result.ClamAV = first.ClamAV
+	if first.Blocked {
+		result.Blocked = true
+	}
+
+	// Scan last chunk if different from first (trailing payloads).
+	if chunkCount > 1 {
+		lastChunk := filepath.Join(chunkDir, fmt.Sprintf("chunk_%05d.bin", chunkCount-1))
+		last, err := ScanFile(lastChunk, cfg)
+		if err != nil {
+			return nil, fmt.Errorf("scan last chunk: %w", err)
+		}
+		result.Warnings = append(result.Warnings, last.Warnings...)
+		if last.ClamAV != "OK" && last.ClamAV != "skipped" {
+			result.ClamAV = last.ClamAV
+		}
+		if last.Blocked {
+			result.Blocked = true
+		}
+	}
+
+	// If ClamAV is enabled, scan all intermediate chunks too.
+	if cfg.ClamAV.Enabled && chunkCount > 2 {
+		for i := 1; i < chunkCount-1; i++ {
+			path := filepath.Join(chunkDir, fmt.Sprintf("chunk_%05d.bin", i))
+			status, err := scanClamAV(path, cfg.ClamAV.SocketPath)
+			if err != nil {
+				result.ClamAV = fmt.Sprintf("error: %v", err)
+			} else if status != "OK" {
+				result.ClamAV = status
+				result.Blocked = true
+			}
+		}
+	}
+
+	return result, nil
+}
+
+// ScanFile runs all security checks on a single file without loading it
+// entirely into memory. Structural checks use an 8 KiB header + file size;
+// ClamAV reads the file itself via its socket protocol.
 func ScanFile(filePath string, cfg *Config) (*ScanResult, error) {
 	result := &ScanResult{ClamAV: "skipped"}
 
@@ -143,22 +200,53 @@ func checkMacro(header []byte, filePath string) string {
 	return ""
 }
 
+// scanClamAV sends file content to clamd via the INSTREAM protocol.
+// This works across container boundaries (no shared filesystem needed).
+// Protocol: zINSTREAM\0 + [4-byte big-endian length + data]* + \0\0\0\0
 func scanClamAV(filePath, socketPath string) (string, error) {
-	conn, err := net.Dial("unix", socketPath)
+	conn, err := net.DialTimeout("unix", socketPath, 10*time.Second)
 	if err != nil {
 		return "", fmt.Errorf("connect clamav: %w", err)
 	}
 	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(60 * time.Second))
 
-	abs, err := filepath.Abs(filePath)
-	if err != nil {
-		return "", err
+	// Send INSTREAM command.
+	if _, err := conn.Write([]byte("zINSTREAM\x00")); err != nil {
+		return "", fmt.Errorf("send instream cmd: %w", err)
 	}
 
-	// Use SCAN command (file path scanning).
-	cmd := fmt.Sprintf("SCAN %s\n", abs)
-	if _, err := conn.Write([]byte(cmd)); err != nil {
-		return "", fmt.Errorf("send command: %w", err)
+	f, err := os.Open(filePath)
+	if err != nil {
+		return "", fmt.Errorf("open file: %w", err)
+	}
+	defer f.Close()
+
+	// Stream file in 8 KiB chunks with 4-byte big-endian length prefix.
+	buf := make([]byte, 8192)
+	lenBuf := make([]byte, 4)
+	for {
+		n, readErr := f.Read(buf)
+		if n > 0 {
+			lenBuf[0] = byte(n >> 24)
+			lenBuf[1] = byte(n >> 16)
+			lenBuf[2] = byte(n >> 8)
+			lenBuf[3] = byte(n)
+			if _, err := conn.Write(lenBuf); err != nil {
+				return "", fmt.Errorf("send chunk length: %w", err)
+			}
+			if _, err := conn.Write(buf[:n]); err != nil {
+				return "", fmt.Errorf("send chunk data: %w", err)
+			}
+		}
+		if readErr != nil {
+			break
+		}
+	}
+
+	// Terminate stream with zero-length chunk.
+	if _, err := conn.Write([]byte{0, 0, 0, 0}); err != nil {
+		return "", fmt.Errorf("send terminator: %w", err)
 	}
 
 	resp, err := io.ReadAll(conn)
@@ -167,6 +255,7 @@ func scanClamAV(filePath, socketPath string) (string, error) {
 	}
 
 	line := strings.TrimSpace(string(resp))
+	// Response format: "stream: OK" or "stream: <virus> FOUND"
 	if strings.HasSuffix(line, "OK") {
 		return "OK", nil
 	}

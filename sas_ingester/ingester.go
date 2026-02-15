@@ -138,10 +138,19 @@ func (ing *Ingester) recordMetric(name string, value float64, unit string) {
 //  4. Prompt injection scan
 //  5. Update piece state
 //  6. Enqueue webhook routes
+//
+// Identity cutoff: ownerSub is used only for EnsureDossier and the pre-cutoff
+// audit log. After that, it is erased and never passed downstream.
 func (ing *Ingester) Ingest(r io.Reader, dossierID, ownerSub string) (*IngestResult, error) {
+	return ing.IngestWithToken(r, dossierID, ownerSub, "")
+}
+
+// IngestWithToken is like Ingest but also captures the original JWT token for
+// jwt_passthru routes. The token is cleared after enqueuing routes.
+func (ing *Ingester) IngestWithToken(r io.Reader, dossierID, ownerSub, originalToken string) (*IngestResult, error) {
 	start := time.Now()
 
-	// Ensure dossier exists.
+	// --- Pre-cutoff phase: ownerSub is available ---
 	if err := ing.Store.EnsureDossier(dossierID, ownerSub); err != nil {
 		return nil, fmt.Errorf("ensure dossier: %w", err)
 	}
@@ -161,48 +170,65 @@ func (ing *Ingester) Ingest(r io.Reader, dossierID, ownerSub string) (*IngestRes
 
 	if upload.Deduplicated {
 		result.State = "deduplicated"
-		ing.auditLog("upload.dedup", ownerSub, dossierID, upload.SHA256, nil, time.Since(start))
-		ing.recordEvent("upload", upload.SHA256, ownerSub, "dedup", "", true)
+		// Pre-cutoff audit: ownerSub is explicitly labeled as Sas-internal.
+		ing.auditLog("sas.upload.dedup", ownerSub, dossierID, upload.SHA256, nil, time.Since(start))
 		return result, nil
 	}
 
-	return ing.processPipeline(upload, dossierID, ownerSub, result, start)
+	// Pre-cutoff audit: last use of ownerSub before erasure.
+	ing.auditLog("sas.upload.received", ownerSub, dossierID, upload.SHA256, nil, time.Since(start))
+
+	// --- Identity cutoff: ownerSub is erased from this point ---
+	// The pipeline state carries only the opaque dossier_id.
+	// originalToken is passed for jwt_passthru routes only.
+	return ing.processPipeline(upload, dossierID, originalToken, result, start)
 }
 
 // IngestFromUpload runs pipeline steps 2-6 for an upload that was already
 // received (e.g. via tus resumable upload). The UploadResult must have SHA256,
 // SizeBytes, and ChunkCount set; the piece must already exist in the DB.
 func (ing *Ingester) IngestFromUpload(upload *UploadResult, dossierID, ownerSub string) (*IngestResult, error) {
+	return ing.IngestFromUploadWithToken(upload, dossierID, ownerSub, "")
+}
+
+// IngestFromUploadWithToken is like IngestFromUpload but captures the original
+// JWT token for jwt_passthru routes.
+func (ing *Ingester) IngestFromUploadWithToken(upload *UploadResult, dossierID, ownerSub, originalToken string) (*IngestResult, error) {
 	start := time.Now()
 
-	// Ensure dossier exists.
+	// --- Pre-cutoff phase ---
 	if err := ing.Store.EnsureDossier(dossierID, ownerSub); err != nil {
 		return nil, fmt.Errorf("ensure dossier: %w", err)
 	}
 
+	// Pre-cutoff audit.
+	ing.auditLog("sas.tus.received", ownerSub, dossierID, upload.SHA256, nil, time.Since(start))
+
+	// --- Identity cutoff ---
 	result := &IngestResult{
 		SHA256:    upload.SHA256,
 		SizeBytes: upload.SizeBytes,
 		DossierID: dossierID,
 	}
 
-	return ing.processPipeline(upload, dossierID, ownerSub, result, start)
+	return ing.processPipeline(upload, dossierID, originalToken, result, start)
 }
 
 // processPipeline runs steps 2-6: metadata, scan, injection, state, routes.
-func (ing *Ingester) processPipeline(upload *UploadResult, dossierID, ownerSub string, result *IngestResult, start time.Time) (*IngestResult, error) {
+// INVARIANT: ownerSub is NOT passed here. Only the opaque dossierID is used.
+// The originalToken is forwarded to jwt_passthru routes only and never logged.
+func (ing *Ingester) processPipeline(upload *UploadResult, dossierID, originalToken string, result *IngestResult, start time.Time) (*IngestResult, error) {
 	chunkDir := filepath.Join(ing.Config.ChunksDir, dossierID, upload.SHA256)
 
 	// Step 2: metadata extraction across all chunks (header + trailer + entropy).
-	firstChunk := filepath.Join(chunkDir, "chunk_00000.bin")
 	meta, err := ExtractFullMetadata(chunkDir, upload.ChunkCount)
 	if err != nil {
 		log.Printf("[ingester] metadata warning: %v", err)
 	}
 
-	// Step 3: security scan on the first chunk.
+	// Step 3: security scan on first + last chunks (+ ClamAV on all).
 	scanStart := time.Now()
-	scanResult, err := ScanFile(firstChunk, ing.Config)
+	scanResult, err := ScanChunks(chunkDir, upload.ChunkCount, ing.Config)
 	if err != nil {
 		log.Printf("[ingester] scan warning: %v", err)
 		scanResult = &ScanResult{ClamAV: "error"}
@@ -215,8 +241,9 @@ func (ing *Ingester) processPipeline(upload *UploadResult, dossierID, ownerSub s
 			log.Printf("[ingester] update state: %v", err)
 		}
 		result.State = "blocked"
-		ing.auditLog("upload.blocked", ownerSub, dossierID, upload.SHA256, nil, time.Since(start))
-		ing.recordEvent("upload", upload.SHA256, ownerSub, "blocked",
+		// Post-cutoff: no ownerSub in logs, only opaque dossierID.
+		ing.auditLog("sas.pipeline.blocked", "", dossierID, upload.SHA256, nil, time.Since(start))
+		ing.recordEvent("upload", upload.SHA256, "", "blocked",
 			fmt.Sprintf(`{"warnings":%q}`, scanResult.Warnings), false)
 		ing.recordMetric(observability.MetricTaskProcessedCount, 1, "count")
 		return result, nil
@@ -250,17 +277,18 @@ func (ing *Ingester) processPipeline(upload *UploadResult, dossierID, ownerSub s
 	result.MIME = mime
 
 	duration := time.Since(start)
-	ing.auditLog("upload.complete", ownerSub, dossierID,
+	// Post-cutoff audit: no ownerSub, only opaque dossierID.
+	ing.auditLog("sas.pipeline.complete", "", dossierID,
 		fmt.Sprintf("sha256=%s state=%s", upload.SHA256, finalState), nil, duration)
-	ing.recordEvent("upload", upload.SHA256, ownerSub, "complete",
+	ing.recordEvent("upload", upload.SHA256, "", "complete",
 		fmt.Sprintf(`{"state":%q,"mime":%q}`, finalState, mime), true)
 	ing.recordMetric(observability.MetricWorkflowDurationMs, float64(duration.Milliseconds()), "milliseconds")
 	ing.recordMetric(observability.MetricTaskProcessedCount, 1, "count")
 
-	// Step 6: enqueue routes.
+	// Step 6: enqueue routes (originalToken forwarded for jwt_passthru).
 	piece, _ := ing.Store.GetPiece(upload.SHA256, dossierID)
 	if piece != nil && finalState == "ready" {
-		if err := ing.Router.EnqueueRoutes(piece); err != nil {
+		if err := ing.Router.EnqueueRoutesWithToken(piece, originalToken); err != nil {
 			log.Printf("[ingester] enqueue routes: %v", err)
 		}
 	}
