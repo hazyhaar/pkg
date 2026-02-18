@@ -1,6 +1,9 @@
 package connectivity
 
-import "database/sql"
+import (
+	"database/sql"
+	"fmt"
+)
 
 // Schema defines the routes table that drives the smart router.
 // Each row maps a service name to a dispatch strategy.
@@ -32,6 +35,22 @@ BEGIN
     UPDATE routes SET updated_at = strftime('%s', 'now') WHERE service_name = NEW.service_name;
 END;
 `
+
+// OpenDB opens a SQLite database at path with production-safe pragmas:
+//   - journal_mode=WAL: concurrent reads during writes
+//   - busy_timeout=5000: wait up to 5s for locks instead of immediate SQLITE_BUSY
+//   - foreign_keys=ON: enforce FK constraints
+//
+// The caller must blank-import the SQLite driver:
+//
+//	import _ "modernc.org/sqlite"
+//
+// Use this instead of sql.Open for any database that will be shared between
+// Admin writes, Router.Reload reads, and Watch polling.
+func OpenDB(path string) (*sql.DB, error) {
+	dsn := fmt.Sprintf("file:%s?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)", path)
+	return sql.Open("sqlite", dsn)
+}
 
 // Init creates the routes table if it doesn't exist.
 func Init(db *sql.DB) error {

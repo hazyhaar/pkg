@@ -13,6 +13,7 @@ import (
 type channelEntry struct {
 	channel     Channel
 	cancel      context.CancelFunc
+	wg          sync.WaitGroup // tracks the dispatch goroutine
 	platform    string
 	fingerprint string
 }
@@ -31,6 +32,16 @@ type Dispatcher struct {
 	factories map[string]ChannelFactory
 	handler   InboundHandler
 	logger    *slog.Logger
+
+	// lifecycleCtx is a long-lived context that parents all channel listen
+	// contexts. It is independent of any request context passed to Reload,
+	// so that channels survive beyond a single Reload call.
+	lifecycleCtx    context.Context
+	lifecycleCancel context.CancelFunc
+
+	// sem is a semaphore channel used when maxConcurrent > 0 to limit
+	// concurrent InboundHandler calls.
+	sem chan struct{}
 }
 
 // DispatcherOption configures a Dispatcher.
@@ -41,14 +52,30 @@ func WithLogger(l *slog.Logger) DispatcherOption {
 	return func(d *Dispatcher) { d.logger = l }
 }
 
+// WithMaxConcurrent sets the maximum number of concurrent InboundHandler
+// calls across all channels. Use this to prevent unbounded goroutine growth
+// when a high-throughput channel (e.g. WhatsApp group) produces messages
+// faster than the handler (typically an LLM call) can process them.
+// Zero or negative means unlimited (default).
+func WithMaxConcurrent(n int) DispatcherOption {
+	return func(d *Dispatcher) {
+		if n > 0 {
+			d.sem = make(chan struct{}, n)
+		}
+	}
+}
+
 // NewDispatcher creates a Dispatcher with the given inbound handler.
 // Register platform factories before calling Watch.
 func NewDispatcher(handler InboundHandler, opts ...DispatcherOption) *Dispatcher {
+	ctx, cancel := context.WithCancel(context.Background())
 	d := &Dispatcher{
-		channels:  make(map[string]*channelEntry),
-		factories: make(map[string]ChannelFactory),
-		handler:   handler,
-		logger:    slog.Default(),
+		channels:        make(map[string]*channelEntry),
+		factories:       make(map[string]ChannelFactory),
+		handler:         handler,
+		logger:          slog.Default(),
+		lifecycleCtx:    ctx,
+		lifecycleCancel: cancel,
 	}
 	for _, o := range opts {
 		o(d)
@@ -100,6 +127,13 @@ type channelRow struct {
 }
 
 // fingerprint returns a string that changes when the channel config changes.
+//
+// Intentionally excludes auth_state: authentication state is managed by
+// platform SDKs at runtime (e.g. whatsmeow manages its own session SQLite).
+// The auth_state column in the channels table is a backup/export, not a
+// reload trigger. Changing auth_state via Admin.UpdateAuthState does not
+// restart the channel — which is correct because the running SDK already
+// holds the live session.
 func (cr channelRow) fingerprint() string {
 	return cr.Platform + "|" + string(cr.Config)
 }
@@ -107,6 +141,10 @@ func (cr channelRow) fingerprint() string {
 // Reload reads the channels table and reconciles the active channel set.
 // New enabled channels are started, removed or disabled channels are closed,
 // and channels with changed config are restarted.
+//
+// Channel listen contexts are parented to the Dispatcher's lifecycle context,
+// not the ctx passed here. This ensures that channels survive beyond a
+// short-lived request context (e.g. an admin HTTP handler with a timeout).
 func (d *Dispatcher) Reload(ctx context.Context, db *sql.DB) error {
 	rows, err := db.QueryContext(ctx,
 		`SELECT name, platform, enabled, COALESCE(config, '{}'), COALESCE(auth_state, '{}') FROM channels`)
@@ -174,7 +212,8 @@ func (d *Dispatcher) Reload(ctx context.Context, db *sql.DB) error {
 			continue
 		}
 
-		listenCtx, cancel := context.WithCancel(ctx)
+		// Use the dispatcher's lifecycle context, not the request ctx.
+		listenCtx, cancel := context.WithCancel(d.lifecycleCtx)
 		entry := &channelEntry{
 			channel:     ch,
 			cancel:      cancel,
@@ -183,8 +222,9 @@ func (d *Dispatcher) Reload(ctx context.Context, db *sql.DB) error {
 		}
 		d.channels[name] = entry
 
-		// Start listening for inbound messages.
-		go d.dispatch(listenCtx, name, ch)
+		// Start listening for inbound messages, tracked by WaitGroup.
+		entry.wg.Add(1)
+		go d.dispatch(listenCtx, name, ch, &entry.wg)
 
 		d.logger.Info("channel started",
 			"channel", name, "platform", cr.Platform)
@@ -199,7 +239,8 @@ func (d *Dispatcher) Reload(ctx context.Context, db *sql.DB) error {
 
 // dispatch reads inbound messages from a channel and processes them through
 // the InboundHandler. Outbound responses are sent back through the same channel.
-func (d *Dispatcher) dispatch(ctx context.Context, name string, ch Channel) {
+func (d *Dispatcher) dispatch(ctx context.Context, name string, ch Channel, wg *sync.WaitGroup) {
+	defer wg.Done()
 	msgs := ch.Listen(ctx)
 	for {
 		select {
@@ -211,7 +252,21 @@ func (d *Dispatcher) dispatch(ctx context.Context, name string, ch Channel) {
 				return
 			}
 
+			// Acquire semaphore slot if concurrency is limited.
+			if d.sem != nil {
+				select {
+				case d.sem <- struct{}{}:
+				case <-ctx.Done():
+					return
+				}
+			}
+
 			responses, err := d.handler(ctx, msg)
+
+			if d.sem != nil {
+				<-d.sem
+			}
+
 			if err != nil {
 				d.logger.Error("inbound handler failed",
 					"channel", name, "sender", msg.SenderID, "error", err)
@@ -230,7 +285,8 @@ func (d *Dispatcher) dispatch(ctx context.Context, name string, ch Channel) {
 	}
 }
 
-// closeEntry shuts down a channel entry.
+// closeEntry shuts down a channel entry and waits for its dispatch goroutine
+// to exit before returning, preventing goroutine leaks on rapid reconnect.
 func (d *Dispatcher) closeEntry(name string, entry *channelEntry) {
 	entry.cancel()
 	if err := entry.channel.Close(); err != nil {
@@ -240,10 +296,12 @@ func (d *Dispatcher) closeEntry(name string, entry *channelEntry) {
 		d.logger.Info("channel stopped",
 			"channel", name, "platform", entry.platform)
 	}
+	entry.wg.Wait()
 }
 
-// Close shuts down all active channels.
+// Close shuts down all active channels and cancels the lifecycle context.
 func (d *Dispatcher) Close() error {
+	d.lifecycleCancel()
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	for name, entry := range d.channels {

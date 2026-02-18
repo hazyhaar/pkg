@@ -70,14 +70,21 @@ func (a *Admin) GetRoute(ctx context.Context, serviceName string) (*RouteRow, er
 	return &r, nil
 }
 
-// UpsertRoute inserts or replaces a route in the routes table.
+// UpsertRoute inserts or updates a route in the routes table.
+// On conflict (same service_name), strategy, endpoint, and config are updated;
+// updated_at is refreshed by the trigger.
 // The watcher will detect the change and trigger a Reload automatically.
 func (a *Admin) UpsertRoute(ctx context.Context, serviceName, strategy, endpoint string, config json.RawMessage) error {
 	if config == nil {
 		config = json.RawMessage(`{}`)
 	}
 	_, err := a.db.ExecContext(ctx,
-		`INSERT OR REPLACE INTO routes (service_name, strategy, endpoint, config) VALUES (?, ?, ?, ?)`,
+		`INSERT INTO routes (service_name, strategy, endpoint, config)
+		 VALUES (?, ?, ?, ?)
+		 ON CONFLICT(service_name) DO UPDATE SET
+		     strategy = excluded.strategy,
+		     endpoint = excluded.endpoint,
+		     config   = excluded.config`,
 		serviceName, strategy, endpoint, string(config))
 	if err != nil {
 		return fmt.Errorf("admin: upsert route: %w", err)
