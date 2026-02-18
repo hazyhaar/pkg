@@ -70,9 +70,9 @@ func (l *EventLogger) LogHeartbeat(ctx context.Context, workerName string, worke
 	heartbeatID := l.newID()
 	_, err := l.db.ExecContext(ctx, `
 		INSERT INTO worker_heartbeats (
-			heartbeat_id, worker_name, worker_pid, machine_name, heartbeat_at
+			heartbeat_id, worker_name, hostname, worker_pid, timestamp
 		) VALUES (?,?,?,?,?)`,
-		heartbeatID, workerName, workerPID, machineName, time.Now().Unix())
+		heartbeatID, workerName, machineName, workerPID, time.Now().Unix())
 	if err != nil {
 		slog.Warn("heartbeat log failed", "error", err, "worker", workerName)
 	}
@@ -90,6 +90,18 @@ type RetentionConfig struct {
 func Cleanup(ctx context.Context, db *sql.DB, cfg RetentionConfig) error {
 	now := time.Now().Unix()
 
+	// allowedTables and allowedColumns are whitelists to prevent SQL injection
+	// if this pattern is ever refactored to accept external input.
+	allowedTables := map[string]bool{
+		"http_request_logs":    true,
+		"business_event_logs":  true,
+		"worker_heartbeats":    true,
+	}
+	allowedColumns := map[string]bool{
+		"created_at": true,
+		"timestamp":  true,
+	}
+
 	type cleanupTarget struct {
 		table  string
 		column string
@@ -98,12 +110,15 @@ func Cleanup(ctx context.Context, db *sql.DB, cfg RetentionConfig) error {
 	targets := []cleanupTarget{
 		{"http_request_logs", "created_at", cfg.HTTPLogsDays},
 		{"business_event_logs", "created_at", cfg.EventLogsDays},
-		{"worker_heartbeats", "heartbeat_at", cfg.HeartbeatsDays},
+		{"worker_heartbeats", "timestamp", cfg.HeartbeatsDays},
 	}
 
 	for _, t := range targets {
 		if t.days <= 0 {
 			continue
+		}
+		if !allowedTables[t.table] || !allowedColumns[t.column] {
+			return fmt.Errorf("cleanup: invalid table/column %s/%s", t.table, t.column)
 		}
 		cutoff := now - int64(t.days*86400)
 		q := fmt.Sprintf("DELETE FROM %s WHERE %s < ?", t.table, t.column)

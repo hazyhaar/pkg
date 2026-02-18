@@ -3,8 +3,7 @@ package feedback
 import (
 	"database/sql"
 	"encoding/json"
-	"fmt"
-	"html"
+	"html/template"
 	"net/http"
 	"strconv"
 	"strings"
@@ -80,17 +79,18 @@ func (w *Widget) handleListJSON(wr http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(wr).Encode(comments)
 }
 
-func (w *Widget) handleListHTML(wr http.ResponseWriter, r *http.Request) {
-	comments, err := w.listComments(200, 0)
-	if err != nil {
-		http.Error(wr, "internal error", http.StatusInternalServerError)
-		return
-	}
+// commentView is the template-friendly projection of a Comment.
+type commentView struct {
+	Text      string
+	UserID    string
+	CreatedAt string
+	PageURL   string
+	SafeURL   bool
+}
 
-	wr.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprintf(wr, `<!DOCTYPE html>
+var listHTMLTmpl = template.Must(template.New("list").Parse(`<!DOCTYPE html>
 <html lang="fr"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Commentaires — %s</title>
+<title>Commentaires — {{.AppName}}</title>
 <style>
 body{font-family:system-ui,sans-serif;max-width:800px;margin:2rem auto;padding:0 1rem;color:#222;background:#fafafa}
 h1{font-size:1.4rem;border-bottom:2px solid #e0e0e0;padding-bottom:.5rem}
@@ -98,26 +98,50 @@ h1{font-size:1.4rem;border-bottom:2px solid #e0e0e0;padding-bottom:.5rem}
 .meta{font-size:.8rem;color:#666;margin-top:.5rem}
 .empty{color:#999;font-style:italic}
 </style></head><body>
-<h1>Commentaires — %s (%d)</h1>`, html.EscapeString(w.appName), html.EscapeString(w.appName), len(comments))
+<h1>Commentaires — {{.AppName}} ({{.Count}})</h1>
+{{- if eq .Count 0}}
+<p class="empty">Aucun commentaire pour le moment.</p>
+{{- end}}
+{{- range .Comments}}
+<div class="comment"><p>{{.Text}}</p><div class="meta">{{.UserID}} &mdash; {{.CreatedAt}}
+{{- if and .PageURL .SafeURL}} &mdash; <a href="{{.PageURL}}">{{.PageURL}}</a>
+{{- else if .PageURL}} &mdash; {{.PageURL}}
+{{- end}}</div></div>
+{{- end}}
+</body></html>`))
 
-	if len(comments) == 0 {
-		fmt.Fprint(wr, `<p class="empty">Aucun commentaire pour le moment.</p>`)
+func (w *Widget) handleListHTML(wr http.ResponseWriter, r *http.Request) {
+	comments, err := w.listComments(200, 0)
+	if err != nil {
+		http.Error(wr, "internal error", http.StatusInternalServerError)
+		return
 	}
-	for _, c := range comments {
+
+	views := make([]commentView, len(comments))
+	for i, c := range comments {
 		uid := "anonyme"
 		if c.UserID != nil {
-			uid = html.EscapeString(*c.UserID)
+			uid = *c.UserID
 		}
-		t := time.Unix(c.CreatedAt, 0).Format("2006-01-02 15:04")
-		fmt.Fprintf(wr, `<div class="comment"><p>%s</p><div class="meta">%s &mdash; %s`, html.EscapeString(c.Text), uid, t)
-		if c.PageURL != "" && isSafeURL(c.PageURL) {
-			fmt.Fprintf(wr, ` &mdash; <a href="%s">%s</a>`, html.EscapeString(c.PageURL), html.EscapeString(c.PageURL))
-		} else if c.PageURL != "" {
-			fmt.Fprintf(wr, ` &mdash; %s`, html.EscapeString(c.PageURL))
+		views[i] = commentView{
+			Text:      c.Text,
+			UserID:    uid,
+			CreatedAt: time.Unix(c.CreatedAt, 0).Format("2006-01-02 15:04"),
+			PageURL:   c.PageURL,
+			SafeURL:   c.PageURL != "" && isSafeURL(c.PageURL),
 		}
-		fmt.Fprint(wr, `</div></div>`)
 	}
-	fmt.Fprint(wr, `</body></html>`)
+
+	wr.Header().Set("Content-Type", "text/html; charset=utf-8")
+	listHTMLTmpl.Execute(wr, struct {
+		AppName  string
+		Count    int
+		Comments []commentView
+	}{
+		AppName:  w.appName,
+		Count:    len(comments),
+		Comments: views,
+	})
 }
 
 func (w *Widget) listComments(limit, offset int) ([]Comment, error) {

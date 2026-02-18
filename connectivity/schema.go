@@ -17,7 +17,7 @@ import "database/sql"
 const Schema = `
 CREATE TABLE IF NOT EXISTS routes (
     service_name TEXT PRIMARY KEY,
-    strategy     TEXT NOT NULL CHECK(strategy IN ('local', 'quic', 'http', 'grpc', 'mcp', 'noop')),
+    strategy     TEXT NOT NULL CHECK(strategy IN ('local', 'quic', 'http', 'mcp', 'noop')),
     endpoint     TEXT,
     config       TEXT DEFAULT '{}',
     updated_at   INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))

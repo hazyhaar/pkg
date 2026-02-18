@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/hazyhaar/pkg/idgen"
@@ -159,11 +160,21 @@ func (a *AuditLogger) Query(ctx context.Context, f *AuditFilter) ([]*AuditEntry,
 
 	orderBy := "timestamp"
 	if f.OrderBy != "" {
-		orderBy = f.OrderBy
+		switch f.OrderBy {
+		case "timestamp", "duration_ms", "component_name", "status":
+			orderBy = f.OrderBy
+		default:
+			return nil, fmt.Errorf("invalid order_by column: %q", f.OrderBy)
+		}
 	}
 	orderDir := "DESC"
 	if f.OrderDir != "" {
-		orderDir = f.OrderDir
+		switch strings.ToUpper(f.OrderDir) {
+		case "ASC", "DESC":
+			orderDir = strings.ToUpper(f.OrderDir)
+		default:
+			return nil, fmt.Errorf("invalid order_dir: %q", f.OrderDir)
+		}
 	}
 	q += fmt.Sprintf(" ORDER BY %s %s", orderBy, orderDir)
 
