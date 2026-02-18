@@ -1,7 +1,11 @@
 package channels
 
 import (
+	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,7 +20,9 @@ type WebhookConfig struct {
 	ListenAddr string `json:"listen_addr"`
 	// Path is the URL path to listen on (e.g. "/webhook/inbound").
 	Path string `json:"path"`
-	// Secret is an optional shared secret for HMAC signature verification.
+	// Secret is an optional shared secret for HMAC-SHA256 signature verification.
+	// When set, inbound requests must include an X-Signature-256 header with
+	// the hex-encoded HMAC-SHA256 of the request body.
 	Secret string `json:"secret,omitempty"`
 	// MaxBodyBytes limits the request body size. Defaults to 1MB.
 	MaxBodyBytes int64 `json:"max_body_bytes,omitempty"`
@@ -26,9 +32,12 @@ type WebhookConfig struct {
 // This allows any external system to push messages into the channels pipeline
 // via HTTP POST.
 //
-// Inbound messages are received as JSON POST bodies. Outbound messages are
-// buffered and can be retrieved by polling or via a callback URL configured
-// in the message metadata.
+// Inbound messages are received as JSON POST bodies. If the config includes a
+// secret, the handler verifies the X-Signature-256 HMAC header before accepting.
+//
+// Outbound messages are POSTed as JSON to msg.Metadata["callback_url"] when
+// present; otherwise they are silently dropped (the caller is responsible for
+// including a callback URL if it expects responses).
 //
 // Config example:
 //
@@ -57,12 +66,13 @@ type webhookChannel struct {
 	name   string
 	config WebhookConfig
 
-	mu      sync.Mutex
-	closed  bool
-	status  ChannelStatus
-	server  *http.Server
-	inbound chan Message
-	closeCh chan struct{}
+	mu         sync.Mutex
+	closed     bool
+	status     ChannelStatus
+	server     *http.Server
+	inbound    chan Message
+	closeCh    chan struct{}
+	listenOnce sync.Once
 }
 
 func newWebhookChannel(name string, cfg WebhookConfig) *webhookChannel {
@@ -79,60 +89,92 @@ func newWebhookChannel(name string, cfg WebhookConfig) *webhookChannel {
 	}
 }
 
+// verifyHMAC checks the X-Signature-256 header against the body.
+// Returns true if verification passes or no secret is configured.
+func (c *webhookChannel) verifyHMAC(body []byte, signature string) bool {
+	if c.config.Secret == "" {
+		return true
+	}
+	if signature == "" {
+		return false
+	}
+	// Strip optional "sha256=" prefix (GitHub-style).
+	const prefix = "sha256="
+	if len(signature) > len(prefix) && signature[:len(prefix)] == prefix {
+		signature = signature[len(prefix):]
+	}
+	decoded, err := hex.DecodeString(signature)
+	if err != nil {
+		return false
+	}
+	mac := hmac.New(sha256.New, []byte(c.config.Secret))
+	mac.Write(body)
+	return hmac.Equal(mac.Sum(nil), decoded)
+}
+
 func (c *webhookChannel) Listen(ctx context.Context) <-chan Message {
 	ch := make(chan Message)
 
-	mux := http.NewServeMux()
-	mux.HandleFunc(c.config.Path, func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
+	// Start the HTTP server at most once, even if Listen is called multiple times.
+	c.listenOnce.Do(func() {
+		mux := http.NewServeMux()
+		mux.HandleFunc(c.config.Path, func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
 
-		body, err := io.ReadAll(io.LimitReader(r.Body, c.config.MaxBodyBytes))
-		if err != nil {
-			http.Error(w, "read body failed", http.StatusBadRequest)
-			return
-		}
+			body, err := io.ReadAll(io.LimitReader(r.Body, c.config.MaxBodyBytes))
+			if err != nil {
+				http.Error(w, "read body failed", http.StatusBadRequest)
+				return
+			}
 
-		var msg Message
-		if err := json.Unmarshal(body, &msg); err != nil {
-			http.Error(w, "invalid JSON", http.StatusBadRequest)
-			return
-		}
+			// Verify HMAC signature if a secret is configured.
+			if !c.verifyHMAC(body, r.Header.Get("X-Signature-256")) {
+				http.Error(w, "invalid signature", http.StatusForbidden)
+				return
+			}
 
-		msg.ChannelName = c.name
-		msg.Platform = "webhook"
-		msg.Direction = Inbound
-		if msg.Timestamp.IsZero() {
-			msg.Timestamp = time.Now()
-		}
+			var msg Message
+			if err := json.Unmarshal(body, &msg); err != nil {
+				http.Error(w, "invalid JSON", http.StatusBadRequest)
+				return
+			}
 
-		select {
-		case c.inbound <- msg:
-			w.WriteHeader(http.StatusAccepted)
-		default:
-			http.Error(w, "buffer full", http.StatusServiceUnavailable)
+			msg.ChannelName = c.name
+			msg.Platform = "webhook"
+			msg.Direction = Inbound
+			if msg.Timestamp.IsZero() {
+				msg.Timestamp = time.Now()
+			}
+
+			select {
+			case c.inbound <- msg:
+				w.WriteHeader(http.StatusAccepted)
+			default:
+				http.Error(w, "buffer full", http.StatusServiceUnavailable)
+			}
+		})
+
+		c.mu.Lock()
+		c.server = &http.Server{
+			Addr:    c.config.ListenAddr,
+			Handler: mux,
 		}
+		c.status.Connected = true
+		c.mu.Unlock()
+
+		// Start HTTP server in background.
+		go func() {
+			if err := c.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				c.mu.Lock()
+				c.status.Connected = false
+				c.status.Error = err.Error()
+				c.mu.Unlock()
+			}
+		}()
 	})
-
-	c.mu.Lock()
-	c.server = &http.Server{
-		Addr:    c.config.ListenAddr,
-		Handler: mux,
-	}
-	c.status.Connected = true
-	c.mu.Unlock()
-
-	// Start HTTP server in background.
-	go func() {
-		if err := c.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			c.mu.Lock()
-			c.status.Connected = false
-			c.status.Error = err.Error()
-			c.mu.Unlock()
-		}
-	}()
 
 	// Forward inbound messages to the returned channel.
 	go func() {
@@ -163,15 +205,55 @@ func (c *webhookChannel) Listen(ctx context.Context) <-chan Message {
 
 func (c *webhookChannel) Send(ctx context.Context, msg Message) error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.closed {
+	closed := c.closed
+	c.mu.Unlock()
+	if closed {
 		return &ErrSendFailed{Channel: c.name, Platform: "webhook",
 			Cause: fmt.Errorf("channel closed")}
 	}
-	// Webhook channels are primarily inbound. Outbound messages can be
-	// delivered via a callback URL in msg.Metadata["callback_url"] or
-	// stored for polling. For now, this is a no-op stub.
+
+	callbackURL := msg.Metadata["callback_url"]
+	if callbackURL == "" {
+		// No callback URL — nothing to do. The caller did not provide a
+		// return path, so the response is silently dropped.
+		return nil
+	}
+
+	body, err := json.Marshal(msg)
+	if err != nil {
+		return &ErrSendFailed{Channel: c.name, Platform: "webhook",
+			Cause: fmt.Errorf("marshal response: %w", err)}
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, callbackURL, bytes.NewReader(body))
+	if err != nil {
+		return &ErrSendFailed{Channel: c.name, Platform: "webhook",
+			Cause: fmt.Errorf("build request: %w", err)}
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	// Sign the outbound payload if a secret is configured.
+	if c.config.Secret != "" {
+		mac := hmac.New(sha256.New, []byte(c.config.Secret))
+		mac.Write(body)
+		req.Header.Set("X-Signature-256", "sha256="+hex.EncodeToString(mac.Sum(nil)))
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return &ErrSendFailed{Channel: c.name, Platform: "webhook",
+			Cause: fmt.Errorf("callback POST: %w", err)}
+	}
+	resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return &ErrSendFailed{Channel: c.name, Platform: "webhook",
+			Cause: fmt.Errorf("callback returned %d", resp.StatusCode)}
+	}
+
+	c.mu.Lock()
 	c.status.LastMessage = time.Now()
+	c.mu.Unlock()
 	return nil
 }
 

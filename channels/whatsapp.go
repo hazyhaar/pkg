@@ -48,11 +48,10 @@ type whatsAppChannel struct {
 	name   string
 	config WhatsAppConfig
 
-	mu       sync.Mutex
-	closed   bool
-	status   ChannelStatus
-	outCh    chan Message
-	closeCh  chan struct{}
+	mu      sync.Mutex
+	closed  bool
+	status  ChannelStatus
+	closeCh chan struct{}
 }
 
 func newWhatsAppChannel(name string, cfg WhatsAppConfig) *whatsAppChannel {
@@ -64,7 +63,6 @@ func newWhatsAppChannel(name string, cfg WhatsAppConfig) *whatsAppChannel {
 			Platform:  "whatsapp",
 			AuthState: "pending_qr",
 		},
-		outCh:   make(chan Message, 256),
 		closeCh: make(chan struct{}),
 	}
 }

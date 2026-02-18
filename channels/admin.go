@@ -77,7 +77,10 @@ func (a *Admin) GetChannel(ctx context.Context, name string) (*ChannelRow, error
 	return &r, nil
 }
 
-// UpsertChannel inserts or replaces a channel in the channels table.
+// UpsertChannel inserts or updates a channel in the channels table.
+// On conflict (same name), only platform, enabled, and config are updated;
+// auth_state is preserved so that active sessions (e.g. WhatsApp pairing)
+// are not lost when an admin changes the channel config.
 // The watcher will detect the change and trigger a Reload automatically.
 func (a *Admin) UpsertChannel(ctx context.Context, name, platform string, enabled bool, config json.RawMessage) error {
 	if config == nil {
@@ -88,7 +91,12 @@ func (a *Admin) UpsertChannel(ctx context.Context, name, platform string, enable
 		enabledInt = 1
 	}
 	_, err := a.db.ExecContext(ctx,
-		`INSERT OR REPLACE INTO channels (name, platform, enabled, config) VALUES (?, ?, ?, ?)`,
+		`INSERT INTO channels (name, platform, enabled, config)
+		 VALUES (?, ?, ?, ?)
+		 ON CONFLICT(name) DO UPDATE SET
+		     platform = excluded.platform,
+		     enabled  = excluded.enabled,
+		     config   = excluded.config`,
 		name, platform, enabledInt, string(config))
 	if err != nil {
 		return fmt.Errorf("admin: upsert channel: %w", err)
