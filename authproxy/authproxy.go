@@ -27,6 +27,11 @@ type AuthProxy struct {
 	secure       bool   // true for HTTPS
 	logger       *slog.Logger
 	client       *http.Client
+
+	// HealthCheck is an optional callback that returns whether the BO is
+	// reachable. When set and returning false, auth handlers fail fast
+	// instead of waiting for the HTTP timeout.
+	HealthCheck func() bool
 }
 
 // NewAuthProxy creates an auth proxy that calls BO internal API endpoints.
@@ -62,6 +67,13 @@ type authResponse struct {
 // It reads the form, calls BO /api/internal/auth/login, sets the cookie, and redirects.
 func (p *AuthProxy) LoginHandler(setFlash func(http.ResponseWriter, string, string)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// Circuit breaker: fail fast if BO is known-down.
+		if p.HealthCheck != nil && !p.HealthCheck() {
+			setFlash(w, "error", "Service temporairement indisponible")
+			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			return
+		}
+
 		if err := r.ParseForm(); err != nil {
 			setFlash(w, "error", "Requête invalide")
 			http.Redirect(w, r, "/login", http.StatusSeeOther)
@@ -105,6 +117,13 @@ func (p *AuthProxy) LoginHandler(setFlash func(http.ResponseWriter, string, stri
 // It reads the form, calls BO /api/internal/auth/register, and redirects.
 func (p *AuthProxy) RegisterHandler(setFlash func(http.ResponseWriter, string, string)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// Circuit breaker: fail fast if BO is known-down.
+		if p.HealthCheck != nil && !p.HealthCheck() {
+			setFlash(w, "error", "Service temporairement indisponible")
+			http.Redirect(w, r, "/register", http.StatusSeeOther)
+			return
+		}
+
 		if err := r.ParseForm(); err != nil {
 			setFlash(w, "error", "Requête invalide")
 			http.Redirect(w, r, "/register", http.StatusSeeOther)

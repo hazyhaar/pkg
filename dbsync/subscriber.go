@@ -33,6 +33,7 @@ type Subscriber struct {
 	// Track current version for status reporting.
 	lastVersion atomic.Int64
 	lastHash    atomic.Value // string
+	lastSwapAt  atomic.Int64 // unix timestamp of last successful swap
 }
 
 // NewSubscriber creates a Subscriber that listens on listenAddr for snapshot
@@ -101,14 +102,34 @@ func (s *Subscriber) Ping(ctx context.Context) error {
 // Version returns the version of the last received snapshot.
 func (s *Subscriber) Version() int64 { return s.lastVersion.Load() }
 
+// LastSwapAt returns the unix timestamp of the last successful database swap,
+// or 0 if no swap has occurred yet.
+func (s *Subscriber) LastSwapAt() int64 { return s.lastSwapAt.Load() }
+
+// StaleSince returns how long since the last successful swap. Returns -1 if
+// no swap has occurred yet.
+func (s *Subscriber) StaleSince() time.Duration {
+	ts := s.lastSwapAt.Load()
+	if ts == 0 {
+		return -1
+	}
+	return time.Since(time.Unix(ts, 0))
+}
+
 // Status returns a JSON-serializable status summary.
 func (s *Subscriber) Status() map[string]any {
-	return map[string]any{
+	swapAt := s.lastSwapAt.Load()
+	st := map[string]any{
 		"role":         "subscriber",
 		"last_version": s.lastVersion.Load(),
 		"last_hash":    s.lastHash.Load(),
 		"has_db":       s.db.Load() != nil,
+		"last_swap_at": swapAt,
 	}
+	if swapAt > 0 {
+		st["age_seconds"] = int64(time.Since(time.Unix(swapAt, 0)).Seconds())
+	}
+	return st
 }
 
 // handleSnapshot receives a snapshot, validates it, and swaps the local DB.
@@ -188,6 +209,7 @@ func (s *Subscriber) handleSnapshot(meta SnapshotMeta, reader io.Reader) error {
 	s.db.Store(newDB)
 	s.lastVersion.Store(meta.Version)
 	s.lastHash.Store(meta.Hash)
+	s.lastSwapAt.Store(time.Now().Unix())
 
 	s.logger.Info("dbsync subscriber: database swapped", "version", meta.Version)
 
