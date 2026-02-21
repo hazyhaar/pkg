@@ -1,17 +1,12 @@
 package mcpquic
 
 import (
-	"bufio"
 	"context"
 	"crypto/tls"
-	"encoding/json"
 	"io"
 	"log/slog"
-	"sync"
-	"sync/atomic"
 
-	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/mark3labs/mcp-go/server"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/quic-go/quic-go"
 
 	"github.com/hazyhaar/pkg/idgen"
@@ -21,7 +16,7 @@ import (
 // Handler handles individual MCP-over-QUIC connections without owning a listener.
 // Used by the chassis for ALPN-based demuxing on a shared UDP socket.
 type Handler struct {
-	mcpServer *server.MCPServer
+	mcpServer *mcp.Server
 	logger    *slog.Logger
 	newID     idgen.Generator
 }
@@ -35,7 +30,7 @@ func WithHandlerIDGenerator(gen idgen.Generator) HandlerOption {
 }
 
 // NewHandler creates an MCP connection handler for use with chassis demuxing.
-func NewHandler(mcpSrv *server.MCPServer, logger *slog.Logger, opts ...HandlerOption) *Handler {
+func NewHandler(mcpSrv *mcp.Server, logger *slog.Logger, opts ...HandlerOption) *Handler {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -73,65 +68,40 @@ func (h *Handler) ServeConn(ctx context.Context, conn *quic.Conn) {
 	sessionID := "quic_" + h.newID()
 	h.logger.Info("MCP session starting", "session", sessionID, "remote", remote)
 
-	sess := newSession(sessionID, stream)
-	if err := h.mcpServer.RegisterSession(ctx, sess); err != nil {
-		h.logger.Error("session register failed", "session", sessionID, "error", err)
+	// Create a QUIC transport using the SDK's IOTransport wired to the stream.
+	ctx = kit.WithTransport(ctx, "mcp_quic")
+	transport := &quicServerTransport{
+		stream:    stream,
+		sessionID: sessionID,
+	}
+
+	// Connect the MCP server over this transport — the SDK handles the
+	// full JSON-RPC read/write loop and session lifecycle internally.
+	ss, err := h.mcpServer.Connect(ctx, transport, nil)
+	if err != nil {
+		h.logger.Error("MCP connect failed", "session", sessionID, "error", err)
 		stream.Close()
 		return
 	}
-	defer h.mcpServer.UnregisterSession(ctx, sessionID)
 
-	ctx = kit.WithTransport(ctx, "mcp_quic")
-	ctx = h.mcpServer.WithContext(ctx, sess)
-
-	go sess.writeNotifications(ctx, stream)
-
-	reader := bufio.NewReader(stream)
-	for {
-		line, err := reader.ReadBytes('\n')
-		if err != nil {
-			if err != io.EOF && ctx.Err() == nil {
-				h.logger.Error("MCP read error", "session", sessionID, "error", err)
-			}
-			break
-		}
-
-		line = line[:len(line)-1]
-		if len(line) == 0 {
-			continue
-		}
-
-		response := h.mcpServer.HandleMessage(ctx, json.RawMessage(line))
-		if response == nil {
-			continue
-		}
-
-		data, err := json.Marshal(response)
-		if err != nil {
-			h.logger.Error("MCP marshal failed", "session", sessionID, "error", err)
-			continue
-		}
-
-		data = append(data, '\n')
-		if _, err := stream.Write(data); err != nil {
-			h.logger.Error("MCP write error", "session", sessionID, "error", err)
-			break
-		}
+	// Wait for the session to end (client disconnect or context cancellation).
+	if err := ss.Wait(); err != nil {
+		h.logger.Debug("MCP session ended", "session", sessionID, "error", err)
 	}
 
 	h.logger.Info("MCP session ended", "session", sessionID, "remote", remote)
 }
 
-// Listener accepts MCP-over-QUIC connections and dispatches to a shared MCPServer.
+// Listener accepts MCP-over-QUIC connections and dispatches to a shared MCP Server.
 // For standalone use (without chassis). The chassis uses Handler directly.
 type Listener struct {
 	listener  *quic.Listener
 	handler   *Handler
-	mcpServer *server.MCPServer
+	mcpServer *mcp.Server
 	logger    *slog.Logger
 }
 
-func NewListener(addr string, tlsCfg *tls.Config, mcpSrv *server.MCPServer, logger *slog.Logger, opts ...HandlerOption) (*Listener, error) {
+func NewListener(addr string, tlsCfg *tls.Config, mcpSrv *mcp.Server, logger *slog.Logger, opts ...HandlerOption) (*Listener, error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -174,42 +144,34 @@ func (l *Listener) Close() error {
 	return l.listener.Close()
 }
 
-// session implements server.ClientSession for a single QUIC connection.
-type session struct {
-	id            string
-	notifications chan mcp.JSONRPCNotification
-	initialized   atomic.Bool
-	writer        io.Writer
-	mu            sync.RWMutex
+// quicServerTransport implements mcp.Transport for server-side QUIC streams.
+type quicServerTransport struct {
+	stream    *quic.Stream
+	sessionID string
 }
 
-func newSession(id string, writer io.Writer) *session {
-	return &session{
-		id:            id,
-		notifications: make(chan mcp.JSONRPCNotification, 100),
-		writer:        writer,
+func (t *quicServerTransport) Connect(ctx context.Context) (mcp.Connection, error) {
+	iot := &mcp.IOTransport{
+		Reader: io.NopCloser(t.stream),
+		Writer: streamWriteCloser{t.stream},
 	}
-}
-
-func (s *session) SessionID() string                                   { return s.id }
-func (s *session) NotificationChannel() chan<- mcp.JSONRPCNotification { return s.notifications }
-func (s *session) Initialize()                                         { s.initialized.Store(true) }
-func (s *session) Initialized() bool                                   { return s.initialized.Load() }
-
-func (s *session) writeNotifications(ctx context.Context, w io.Writer) {
-	for {
-		select {
-		case notif := <-s.notifications:
-			data, err := json.Marshal(notif)
-			if err != nil {
-				continue
-			}
-			data = append(data, '\n')
-			s.mu.Lock()
-			_, _ = w.Write(data)
-			s.mu.Unlock()
-		case <-ctx.Done():
-			return
-		}
+	conn, err := iot.Connect(ctx)
+	if err != nil {
+		return nil, err
 	}
+	return &sessionConn{Connection: conn, id: t.sessionID}, nil
 }
+
+// sessionConn wraps an mcp.Connection to provide a custom session ID.
+type sessionConn struct {
+	mcp.Connection
+	id string
+}
+
+func (c *sessionConn) SessionID() string { return c.id }
+
+// streamWriteCloser adapts a *quic.Stream to io.WriteCloser.
+type streamWriteCloser struct{ stream *quic.Stream }
+
+func (w streamWriteCloser) Write(p []byte) (int, error) { return w.stream.Write(p) }
+func (w streamWriteCloser) Close() error                { return w.stream.Close() }

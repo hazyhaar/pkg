@@ -3,10 +3,10 @@ package kit
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
-	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/mark3labs/mcp-go/server"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // MCPDecodeResult holds the decoded request and an optional context enrichment.
@@ -17,11 +17,13 @@ type MCPDecodeResult struct {
 
 // RegisterMCPTool registers an Endpoint as an MCP tool on the given server.
 // The decode function extracts the typed request from MCP arguments.
-func RegisterMCPTool(srv *server.MCPServer, tool mcp.Tool, endpoint Endpoint, decode func(mcp.CallToolRequest) (*MCPDecodeResult, error)) {
-	srv.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func RegisterMCPTool(srv *mcp.Server, tool *mcp.Tool, endpoint Endpoint, decode func(*mcp.CallToolRequest) (*MCPDecodeResult, error)) {
+	srv.AddTool(tool, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		decoded, err := decode(req)
 		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("invalid arguments: %v", err)), nil
+			var res mcp.CallToolResult
+			res.SetError(fmt.Errorf("invalid arguments: %w", err))
+			return &res, nil
 		}
 		if decoded.EnrichCtx != nil {
 			ctx = decoded.EnrichCtx(ctx)
@@ -29,13 +31,19 @@ func RegisterMCPTool(srv *server.MCPServer, tool mcp.Tool, endpoint Endpoint, de
 
 		resp, err := endpoint(ctx, decoded.Request)
 		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+			var res mcp.CallToolResult
+			res.SetError(errors.New(err.Error()))
+			return &res, nil
 		}
 
 		data, err := json.Marshal(resp)
 		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("marshal: %v", err)), nil
+			var res mcp.CallToolResult
+			res.SetError(fmt.Errorf("marshal: %w", err))
+			return &res, nil
 		}
-		return mcp.NewToolResultText(string(data)), nil
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: string(data)}},
+		}, nil
 	})
 }
