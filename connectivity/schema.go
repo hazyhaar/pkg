@@ -20,7 +20,7 @@ import (
 const Schema = `
 CREATE TABLE IF NOT EXISTS routes (
     service_name TEXT PRIMARY KEY,
-    strategy     TEXT NOT NULL CHECK(strategy IN ('local', 'quic', 'http', 'mcp', 'noop')),
+    strategy     TEXT NOT NULL CHECK(strategy IN ('local', 'quic', 'http', 'mcp', 'dbsync', 'noop')),
     endpoint     TEXT,
     config       TEXT DEFAULT '{}',
     updated_at   INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))

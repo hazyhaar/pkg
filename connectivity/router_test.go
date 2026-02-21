@@ -323,8 +323,8 @@ func TestReload_NoFactoryWarns(t *testing.T) {
 	db := setupTestDB(t)
 	r := New()
 
-	// No factory registered for "grpc".
-	_, err := db.Exec(`INSERT INTO routes (service_name, strategy, endpoint) VALUES ('svc', 'grpc', 'grpc://x')`)
+	// No factory registered for "dbsync".
+	_, err := db.Exec(`INSERT INTO routes (service_name, strategy, endpoint) VALUES ('svc', 'dbsync', 'quic://x')`)
 	if err != nil {
 		t.Fatal(err)
 	}
