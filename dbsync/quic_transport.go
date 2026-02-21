@@ -3,6 +3,7 @@ package dbsync
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
@@ -25,13 +26,24 @@ func quicConfig() *quic.Config {
 }
 
 // SyncTLSConfig builds a TLS config with the dbsync ALPN protocol.
+// The cert is added to RootCAs so that self-signed certs are trusted
+// when this config is used as a client (publisher dialing subscriber).
 func SyncTLSConfig(certFile, keyFile string) (*tls.Config, error) {
 	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 	if err != nil {
 		return nil, err
 	}
+
+	certPEM, err := os.ReadFile(certFile)
+	if err != nil {
+		return nil, fmt.Errorf("read cert for root pool: %w", err)
+	}
+	pool := x509.NewCertPool()
+	pool.AppendCertsFromPEM(certPEM)
+
 	return &tls.Config{
 		Certificates: []tls.Certificate{cert},
+		RootCAs:      pool,
 		NextProtos:   []string{ALPNProtocol},
 		MinVersion:   tls.VersionTLS13,
 	}, nil
