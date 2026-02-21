@@ -598,7 +598,8 @@ func TestRecovery(t *testing.T) {
 func TestHTTPFactory_CreatesHandler(t *testing.T) {
 	f := HTTPFactory()
 	cfg := json.RawMessage(`{"timeout_ms": 5000, "content_type": "application/json"}`)
-	h, closeFn, err := f("http://localhost:9999", cfg)
+	// Use an external URL — SSRF guard rejects private/loopback addresses.
+	h, closeFn, err := f("https://example.com/api", cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -609,6 +610,19 @@ func TestHTTPFactory_CreatesHandler(t *testing.T) {
 		t.Fatal("close function is nil")
 	}
 	closeFn()
+}
+
+func TestHTTPFactory_RejectsPrivateURL(t *testing.T) {
+	f := HTTPFactory()
+	cfg := json.RawMessage(`{}`)
+	_, _, err := f("http://127.0.0.1:8080", cfg)
+	if err == nil {
+		t.Fatal("expected SSRF error for loopback URL")
+	}
+	_, _, err = f("http://10.0.0.1:8080", cfg)
+	if err == nil {
+		t.Fatal("expected SSRF error for private URL")
+	}
 }
 
 func TestFingerprint(t *testing.T) {

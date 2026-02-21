@@ -5,10 +5,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"time"
+
+	"github.com/hazyhaar/pkg/horosafe"
 )
+
+// maxHTTPResponseBody caps the amount of response data read from remote
+// HTTP endpoints to prevent memory exhaustion (10 MiB).
+const maxHTTPResponseBody int64 = 10 << 20
 
 // httpConfig is the per-route config parsed from the routes table JSON.
 type httpConfig struct {
@@ -20,11 +25,19 @@ type httpConfig struct {
 // endpoint. It supports per-route timeout and content-type from the
 // config JSON column.
 //
+// SSRF prevention: the endpoint URL is validated against private/loopback
+// addresses at factory creation time.
+//
 // Register it with:
 //
 //	router.RegisterTransport("http", connectivity.HTTPFactory())
 func HTTPFactory() TransportFactory {
 	return func(endpoint string, config json.RawMessage) (Handler, func(), error) {
+		// SSRF guard: reject endpoints pointing to private/loopback addresses.
+		if err := horosafe.ValidateURL(endpoint); err != nil {
+			return nil, nil, fmt.Errorf("connectivity/http: %w", err)
+		}
+
 		var cfg httpConfig
 		if len(config) > 0 {
 			_ = json.Unmarshal(config, &cfg)
@@ -55,7 +68,7 @@ func HTTPFactory() TransportFactory {
 			}
 			defer resp.Body.Close()
 
-			body, err := io.ReadAll(resp.Body)
+			body, err := horosafe.LimitedReadAll(resp.Body, maxHTTPResponseBody)
 			if err != nil {
 				return nil, fmt.Errorf("connectivity/http: read response: %w", err)
 			}

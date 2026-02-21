@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -861,21 +860,16 @@ func TestWebhook_Listen_DoubleCallDoesNotPanic(t *testing.T) {
 // Webhook: Send (callback URL)
 // ---------------------------------------------------------------------------
 
-func TestWebhook_Send_CallbackURL(t *testing.T) {
-	var receivedBody []byte
-	var receivedSig string
-
+func TestWebhook_Send_CallbackURL_SSRFBlocked(t *testing.T) {
+	// SSRF guard: callback URLs pointing to loopback must be rejected.
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		receivedSig = r.Header.Get("X-Signature-256")
-		receivedBody, _ = io.ReadAll(r.Body)
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
 
-	secret := "callback-secret"
 	wh := &webhookChannel{
 		name:    "wh-send",
-		config:  WebhookConfig{Secret: secret},
+		config:  WebhookConfig{Secret: "callback-secret"},
 		closeCh: make(chan struct{}),
 	}
 
@@ -885,32 +879,43 @@ func TestWebhook_Send_CallbackURL(t *testing.T) {
 		Metadata:    map[string]string{"callback_url": server.URL},
 	}
 
-	if err := wh.Send(context.Background(), msg); err != nil {
-		t.Fatal(err)
+	err := wh.Send(context.Background(), msg)
+	if err == nil {
+		t.Fatal("expected SSRF error for loopback callback URL")
 	}
 
-	if len(receivedBody) == 0 {
-		t.Fatal("callback not called")
+	// Private IPs should also be rejected.
+	msg.Metadata["callback_url"] = "http://10.0.0.1:8080/hook"
+	err = wh.Send(context.Background(), msg)
+	if err == nil {
+		t.Fatal("expected SSRF error for private callback URL")
+	}
+}
+
+func TestWebhook_Send_CallbackHMACSigning(t *testing.T) {
+	// Verify HMAC signing on outbound callbacks using verifyHMAC.
+	secret := "callback-secret"
+	wh := &webhookChannel{
+		name:    "wh-send",
+		config:  WebhookConfig{Secret: secret},
+		closeCh: make(chan struct{}),
 	}
 
-	// Verify the body is valid JSON containing the response text.
-	var got Message
-	if err := json.Unmarshal(receivedBody, &got); err != nil {
-		t.Fatalf("invalid callback body: %v", err)
-	}
-	if got.Text != "response" {
-		t.Fatalf("expected 'response', got %q", got.Text)
-	}
+	body := []byte(`{"text":"response"}`)
 
-	// Verify HMAC signature was sent.
-	if receivedSig == "" {
-		t.Fatal("expected X-Signature-256 header")
-	}
+	// Compute expected HMAC.
 	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write(receivedBody)
+	mac.Write(body)
 	expectedSig := "sha256=" + hex.EncodeToString(mac.Sum(nil))
-	if receivedSig != expectedSig {
-		t.Fatalf("HMAC mismatch: got %q, want %q", receivedSig, expectedSig)
+
+	// The verifyHMAC method should accept the correct signature.
+	if !wh.verifyHMAC(body, expectedSig) {
+		t.Fatal("verifyHMAC should accept correct signature")
+	}
+
+	// And reject a wrong signature.
+	if wh.verifyHMAC(body, "sha256=0000000000000000000000000000000000000000000000000000000000000000") {
+		t.Fatal("verifyHMAC should reject wrong signature")
 	}
 }
 

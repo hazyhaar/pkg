@@ -30,15 +30,29 @@ func ValidateFilterSpec(spec FilterSpec) error {
 	return nil
 }
 
-// validateWhereClause rejects WHERE clauses that contain multi-statement or DDL patterns.
+// validateWhereClause rejects WHERE clauses that contain multi-statement, DDL,
+// DML, or subquery patterns that could be used for SQL injection.
 func validateWhereClause(clause string) error {
 	if strings.Contains(clause, ";") {
 		return fmt.Errorf("WHERE clause must not contain semicolons")
 	}
+	if strings.Contains(clause, "--") {
+		return fmt.Errorf("WHERE clause must not contain SQL comments")
+	}
+	if strings.Contains(clause, "/*") {
+		return fmt.Errorf("WHERE clause must not contain block comments")
+	}
 	upper := strings.ToUpper(clause)
-	for _, kw := range []string{"DROP ", "ALTER ", "CREATE ", "ATTACH ", "DETACH "} {
+	blocked := []string{
+		"DROP ", "ALTER ", "CREATE ", "ATTACH ", "DETACH ",
+		"INSERT ", "UPDATE ", "DELETE ", "REPLACE ",
+		"UNION ", "UNION\t", "UNION\n",
+		"INTO ", "EXEC ", "EXECUTE ",
+		"LOAD_EXTENSION", "PRAGMA ",
+	}
+	for _, kw := range blocked {
 		if strings.Contains(upper, kw) {
-			return fmt.Errorf("WHERE clause must not contain DDL keyword %q", strings.TrimSpace(kw))
+			return fmt.Errorf("WHERE clause must not contain keyword %q", strings.TrimSpace(kw))
 		}
 	}
 	return nil

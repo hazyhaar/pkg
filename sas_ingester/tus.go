@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/hazyhaar/pkg/horosafe"
 	"github.com/hazyhaar/pkg/sas_chunker"
 )
 
@@ -27,6 +28,10 @@ func NewTusHandler(store *Store, cfg *Config, newID func() string) *TusHandler {
 
 // Create initialises a new tus upload. Returns the upload ID.
 func (h *TusHandler) Create(dossierID, ownerSub string, totalSize int64) (*TusUpload, error) {
+	// Path traversal guard: dossierID is used in file paths.
+	if err := horosafe.ValidateIdentifier(dossierID); err != nil {
+		return nil, fmt.Errorf("invalid dossier ID: %w", err)
+	}
 	if totalSize <= 0 {
 		return nil, fmt.Errorf("Upload-Length must be > 0")
 	}

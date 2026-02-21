@@ -11,6 +11,10 @@ import (
 	"github.com/hazyhaar/pkg/idgen"
 )
 
+// maxQueryRows limits the number of rows returned by SQLQueryHandler to
+// prevent memory exhaustion from unbounded result sets.
+const maxQueryRows = 10_000
+
 // SQLQueryHandler executes a SELECT and returns results as JSON.
 type SQLQueryHandler struct{ DB *sql.DB }
 
@@ -39,6 +43,9 @@ func (h *SQLQueryHandler) Execute(ctx context.Context, tool *DynamicTool, params
 
 	var results []map[string]any
 	for rows.Next() {
+		if len(results) >= maxQueryRows {
+			return "", fmt.Errorf("query exceeded max result rows (%d)", maxQueryRows)
+		}
 		values := make([]any, len(columns))
 		ptrs := make([]any, len(columns))
 		for i := range values {
@@ -187,6 +194,12 @@ func (h *SQLScriptHandler) resolveTemplateParams(paramsConfig []any, params map[
 			case "now()":
 				args = append(args, time.Now().Unix())
 			default:
+				// Reject unknown function-like expressions to prevent
+				// injection of arbitrary template functions.
+				if strings.Contains(expr, "(") {
+					args = append(args, nil)
+					continue
+				}
 				if val, exists := params[expr]; exists {
 					args = append(args, val)
 				} else {

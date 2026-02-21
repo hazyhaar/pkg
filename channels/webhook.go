@@ -12,6 +12,8 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/hazyhaar/pkg/horosafe"
 )
 
 // WebhookConfig is the per-channel JSON config for generic inbound webhooks.
@@ -159,8 +161,13 @@ func (c *webhookChannel) Listen(ctx context.Context) <-chan Message {
 
 		c.mu.Lock()
 		c.server = &http.Server{
-			Addr:    c.config.ListenAddr,
-			Handler: mux,
+			Addr:              c.config.ListenAddr,
+			Handler:           mux,
+			ReadHeaderTimeout: 10 * time.Second,
+			ReadTimeout:       30 * time.Second,
+			WriteTimeout:      30 * time.Second,
+			IdleTimeout:       60 * time.Second,
+			MaxHeaderBytes:    1 << 16, // 64 KiB
 		}
 		c.status.Connected = true
 		c.mu.Unlock()
@@ -217,6 +224,12 @@ func (c *webhookChannel) Send(ctx context.Context, msg Message) error {
 		// No callback URL — nothing to do. The caller did not provide a
 		// return path, so the response is silently dropped.
 		return nil
+	}
+
+	// SSRF guard: reject callback URLs pointing to private/loopback addresses.
+	if err := horosafe.ValidateURL(callbackURL); err != nil {
+		return &ErrSendFailed{Channel: c.name, Platform: "webhook",
+			Cause: fmt.Errorf("callback url: %w", err)}
 	}
 
 	body, err := json.Marshal(msg)

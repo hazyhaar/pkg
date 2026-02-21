@@ -29,7 +29,7 @@ type Client struct {
 
 func NewClient(addr string, tlsCfg *tls.Config) *Client {
 	if tlsCfg == nil {
-		tlsCfg = ClientTLSConfig(true) // dev default: insecure
+		tlsCfg = ClientTLSConfig(false) // secure by default: verify server cert
 	}
 	return &Client{addr: addr, tlsCfg: tlsCfg}
 }
