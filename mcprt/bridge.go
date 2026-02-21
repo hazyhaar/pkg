@@ -10,6 +10,14 @@ import (
 )
 
 // Bridge registers all dynamic tools from the registry into an MCP server.
+//
+// Migration note (feb 2026): uses official SDK's low-level ToolHandler (not
+// the generic AddTool). Arguments arrive as json.RawMessage in
+// req.Params.Arguments (not pre-decoded map[string]any like mcp-go did).
+// InputSchema is set as json.RawMessage on mcp.Tool — must be valid JSON
+// with "type":"object" or the SDK may reject it.
+// Returning a non-nil error from the handler = JSON-RPC protocol error.
+// For tool errors, use result.SetError(err) and return (result, nil).
 func Bridge(srv *mcp.Server, reg *Registry) {
 	for _, t := range reg.ListTools() {
 		registerDynamicTool(srv, reg, t)

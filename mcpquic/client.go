@@ -12,6 +12,13 @@ import (
 )
 
 // Client connects to an MCP server over QUIC.
+//
+// Migration note (feb 2026): uses official SDK (modelcontextprotocol/go-sdk).
+// Client.Connect now calls mcp.Client.Connect() which handles the full MCP
+// initialize handshake internally (no more separate Start + Initialize).
+// The returned ClientSession is used for all tool calls.
+// ListTools/CallTool signatures use SDK types (*ListToolsResult, *CallToolResult)
+// which marshal identically to the old mcp-go types for JSON consumers.
 type Client struct {
 	addr    string
 	tlsCfg  *tls.Config

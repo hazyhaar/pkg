@@ -15,6 +15,13 @@ import (
 
 // Handler handles individual MCP-over-QUIC connections without owning a listener.
 // Used by the chassis for ALPN-based demuxing on a shared UDP socket.
+//
+// Migration note (feb 2026): uses official SDK (modelcontextprotocol/go-sdk).
+// The SDK owns the JSON-RPC read/write loop via Transport/Connection interfaces.
+// We implement quicServerTransport which wraps mcp.IOTransport over QUIC streams.
+// sessionConn adds a custom SessionID to the underlying ioConn (which returns "").
+// If sessions leak or hang, check that ServerSession.Wait() unblocks on QUIC
+// stream closure and that DefaultIdleTimeout is propagated correctly.
 type Handler struct {
 	mcpServer *mcp.Server
 	logger    *slog.Logger
