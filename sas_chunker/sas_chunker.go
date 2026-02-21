@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -230,6 +231,9 @@ func Assemble(chunksDir, outPath string, progress ProgressFunc) error {
 	if err != nil {
 		return err
 	}
+	if err := validateChunkNames(chunksDir, manifest); err != nil {
+		return err
+	}
 
 	out, err := os.Create(outPath)
 	if err != nil {
@@ -296,6 +300,9 @@ func Verify(chunksDir string) (*VerifyResult, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := validateChunkNames(chunksDir, manifest); err != nil {
+		return nil, err
+	}
 
 	result := &VerifyResult{TotalChunks: manifest.TotalChunks}
 	var totalSize int64
@@ -333,6 +340,27 @@ func Verify(chunksDir string) (*VerifyResult, error) {
 	}
 
 	return result, nil
+}
+
+// validateChunkNames ensures no chunk filename contains path traversal components.
+func validateChunkNames(chunksDir string, m *Manifest) error {
+	absDir, err := filepath.Abs(chunksDir)
+	if err != nil {
+		return fmt.Errorf("resolve chunks dir: %w", err)
+	}
+	for _, cm := range m.Chunks {
+		if strings.Contains(cm.FileName, "..") || filepath.IsAbs(cm.FileName) {
+			return fmt.Errorf("invalid chunk filename %q: path traversal detected", cm.FileName)
+		}
+		absChunk, err := filepath.Abs(filepath.Join(chunksDir, cm.FileName))
+		if err != nil {
+			return fmt.Errorf("resolve chunk path %q: %w", cm.FileName, err)
+		}
+		if !strings.HasPrefix(absChunk, absDir+string(filepath.Separator)) {
+			return fmt.Errorf("chunk %q resolves outside chunks directory", cm.FileName)
+		}
+	}
+	return nil
 }
 
 // LoadManifest reads and parses manifest.json from a chunks directory.
