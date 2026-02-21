@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"time"
 
@@ -126,37 +127,41 @@ func PushSnapshot(ctx context.Context, endpoint string, tlsCfg *tls.Config, meta
 	if err != nil {
 		return fmt.Errorf("dbsync push: dial %s: %w", endpoint, err)
 	}
-	defer conn.CloseWithError(0, "done")
 
 	stream, err := conn.OpenStreamSync(ctx)
 	if err != nil {
+		conn.CloseWithError(1, "open stream failed")
 		return fmt.Errorf("dbsync push: open stream: %w", err)
 	}
-	defer stream.Close()
 
 	// Magic bytes.
 	if _, err := stream.Write([]byte(MagicBytes)); err != nil {
+		conn.CloseWithError(1, "write failed")
 		return fmt.Errorf("dbsync push: magic: %w", err)
 	}
 
 	// Meta JSON.
 	metaJSON, err := json.Marshal(meta)
 	if err != nil {
+		conn.CloseWithError(1, "marshal failed")
 		return fmt.Errorf("dbsync push: marshal meta: %w", err)
 	}
 
 	var lenBuf [4]byte
 	binary.BigEndian.PutUint32(lenBuf[:], uint32(len(metaJSON)))
 	if _, err := stream.Write(lenBuf[:]); err != nil {
+		conn.CloseWithError(1, "write failed")
 		return fmt.Errorf("dbsync push: meta len: %w", err)
 	}
 	if _, err := stream.Write(metaJSON); err != nil {
+		conn.CloseWithError(1, "write failed")
 		return fmt.Errorf("dbsync push: meta: %w", err)
 	}
 
 	// Snapshot data.
 	f, err := os.Open(snapshotPath)
 	if err != nil {
+		conn.CloseWithError(1, "open snapshot failed")
 		return fmt.Errorf("dbsync push: open snapshot: %w", err)
 	}
 	defer f.Close()
@@ -165,21 +170,31 @@ func PushSnapshot(ctx context.Context, endpoint string, tlsCfg *tls.Config, meta
 		// Gzip directly into the QUIC stream.
 		gw := gzip.NewWriter(stream)
 		if _, err := io.Copy(gw, f); err != nil {
+			conn.CloseWithError(1, "write failed")
 			return fmt.Errorf("dbsync push: gzip copy: %w", err)
 		}
 		if err := gw.Close(); err != nil {
+			conn.CloseWithError(1, "gzip close failed")
 			return fmt.Errorf("dbsync push: gzip close: %w", err)
 		}
 	} else {
 		n, err := io.Copy(stream, f)
 		if err != nil {
+			conn.CloseWithError(1, "write failed")
 			return fmt.Errorf("dbsync push: copy data: %w", err)
 		}
 		if n != meta.Size {
+			conn.CloseWithError(1, "size mismatch")
 			return fmt.Errorf("dbsync push: size mismatch: sent %d, expected %d", n, meta.Size)
 		}
 	}
 
+	// Close stream (sends FIN) before closing connection.
+	// QUIC CONNECTION_CLOSE is immediate and would abort pending stream reads
+	// on the peer. Give the peer time to finish reading after the stream FIN.
+	stream.Close()
+	time.Sleep(200 * time.Millisecond)
+	conn.CloseWithError(0, "done")
 	return nil
 }
 
@@ -211,6 +226,7 @@ func ListenSnapshots(ctx context.Context, addr string, tlsCfg *tls.Config, handl
 		go func() {
 			defer conn.CloseWithError(0, "done")
 			if err := handleIncoming(ctx, conn, handler); err != nil {
+				slog.Error("dbsync listen: handler error", "error", err, "remote", conn.RemoteAddr())
 				conn.CloseWithError(1, err.Error())
 			}
 		}()
