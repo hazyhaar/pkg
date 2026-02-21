@@ -13,6 +13,7 @@ import (
 	"context"
 	"database/sql"
 	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -255,11 +256,17 @@ func PragmaUserVersion(ctx context.Context, db *sql.DB) (int64, error) {
 
 // MaxColumnDetector returns a ChangeDetector that polls MAX(column) on a
 // table. Handy for tables that use an auto-incrementing updated_at timestamp.
+// Table and column names are quoted to prevent SQL injection.
 func MaxColumnDetector(table, column string) ChangeDetector {
-	query := "SELECT COALESCE(MAX(" + column + "), 0) FROM " + table
+	query := "SELECT COALESCE(MAX(" + quoteIdent(column) + "), 0) FROM " + quoteIdent(table)
 	return func(ctx context.Context, db *sql.DB) (int64, error) {
 		var v int64
 		err := db.QueryRowContext(ctx, query).Scan(&v)
 		return v, err
 	}
+}
+
+// quoteIdent wraps a SQL identifier in double quotes, escaping any embedded quotes.
+func quoteIdent(s string) string {
+	return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
 }

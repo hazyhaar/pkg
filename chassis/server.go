@@ -22,11 +22,11 @@ import (
 	"net/http"
 	"sync"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/quic-go/quic-go"
 	"github.com/quic-go/quic-go/http3"
 
 	"github.com/hazyhaar/pkg/mcpquic"
-	"github.com/mark3labs/mcp-go/server"
 )
 
 // Server is the unified chassis. It runs:
@@ -37,7 +37,7 @@ type Server struct {
 	logger      *slog.Logger
 	tlsCfg      *tls.Config
 	httpHandler http.Handler
-	mcpServer   *server.MCPServer
+	mcpServer   *mcp.Server
 	mcpHandler  *mcpquic.Handler
 	h3Server    *http3.Server
 	tcpServer   *http.Server
@@ -47,12 +47,12 @@ type Server struct {
 
 // Config holds configuration for the chassis server.
 type Config struct {
-	Addr      string            // Listen address (e.g. ":8080") — TCP + UDP same port
-	TLS       *tls.Config       // nil = auto-generate self-signed
-	CertFile  string            // production cert path
-	KeyFile   string            // production key path
-	Handler   http.Handler      // HTTP handler (mux with API + static)
-	MCPServer *server.MCPServer // MCP server (nil = MCP disabled)
+	Addr      string       // Listen address (e.g. ":8080") — TCP + UDP same port
+	TLS       *tls.Config  // nil = auto-generate self-signed
+	CertFile  string       // production cert path
+	KeyFile   string       // production key path
+	Handler   http.Handler // HTTP handler (mux with API + static)
+	MCPServer *mcp.Server  // MCP server (nil = MCP disabled)
 	Logger    *slog.Logger
 
 	// MCPHandlerOpts are passed to mcpquic.NewHandler.

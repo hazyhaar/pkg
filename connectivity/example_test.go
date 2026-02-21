@@ -116,7 +116,7 @@ func Example_httpFactory() {
 	f := connectivity.HTTPFactory()
 	cfg := json.RawMessage(`{"timeout_ms": 5000, "content_type": "application/json"}`)
 
-	handler, closeFn, err := f("http://localhost:8080/api", cfg)
+	handler, closeFn, err := f("https://api.example.com/v1", cfg)
 	if err != nil {
 		log.Fatal(err)
 	}

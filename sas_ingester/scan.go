@@ -249,7 +249,8 @@ func scanClamAV(filePath, socketPath string) (string, error) {
 		return "", fmt.Errorf("send terminator: %w", err)
 	}
 
-	resp, err := io.ReadAll(conn)
+	// ClamAV responses are short (< 1 KiB). Cap at 4 KiB to prevent abuse.
+	resp, err := io.ReadAll(io.LimitReader(conn, 4096))
 	if err != nil {
 		return "", fmt.Errorf("read response: %w", err)
 	}

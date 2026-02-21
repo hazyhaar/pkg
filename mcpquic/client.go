@@ -7,24 +7,29 @@ import (
 	"io"
 	"time"
 
-	"github.com/mark3labs/mcp-go/client"
-	"github.com/mark3labs/mcp-go/client/transport"
-	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/quic-go/quic-go"
 )
 
 // Client connects to an MCP server over QUIC.
+//
+// Migration note (feb 2026): uses official SDK (modelcontextprotocol/go-sdk).
+// Client.Connect now calls mcp.Client.Connect() which handles the full MCP
+// initialize handshake internally (no more separate Start + Initialize).
+// The returned ClientSession is used for all tool calls.
+// ListTools/CallTool signatures use SDK types (*ListToolsResult, *CallToolResult)
+// which marshal identically to the old mcp-go types for JSON consumers.
 type Client struct {
-	addr      string
-	tlsCfg    *tls.Config
-	conn      *quic.Conn
-	stream    *quic.Stream
-	mcpClient *client.Client
+	addr    string
+	tlsCfg  *tls.Config
+	conn    *quic.Conn
+	stream  *quic.Stream
+	session *mcp.ClientSession
 }
 
 func NewClient(addr string, tlsCfg *tls.Config) *Client {
 	if tlsCfg == nil {
-		tlsCfg = ClientTLSConfig(true) // dev default: insecure
+		tlsCfg = ClientTLSConfig(false) // secure by default: verify server cert
 	}
 	return &Client{addr: addr, tlsCfg: tlsCfg}
 }
@@ -57,59 +62,58 @@ func (c *Client) Connect(ctx context.Context) error {
 	c.conn = conn
 	c.stream = stream
 
-	stdioTransport := transport.NewIO(stream, &writeCloser{stream}, nopReadCloser{})
-	mcpClient := client.NewClient(stdioTransport)
-
-	if err := mcpClient.Start(ctx); err != nil {
-		c.closeTransport()
-		return fmt.Errorf("mcp start: %w", err)
+	// Wrap the QUIC stream as an MCP transport.
+	transport := &mcp.IOTransport{
+		Reader: io.NopCloser(stream),
+		Writer: streamWriteCloser{stream},
 	}
 
-	initReq := mcp.InitializeRequest{}
-	initReq.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
-	initReq.Params.ClientInfo = mcp.Implementation{
+	mcpClient := mcp.NewClient(&mcp.Implementation{
 		Name:    "horos-quic-client",
 		Version: "1.0.0",
-	}
+	}, nil)
 
-	initCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	connectCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	if _, err := mcpClient.Initialize(initCtx, initReq); err != nil {
+
+	// Connect handles the full initialize handshake automatically.
+	session, err := mcpClient.Connect(connectCtx, transport, nil)
+	if err != nil {
 		c.closeTransport()
-		return fmt.Errorf("mcp initialize: %w", err)
+		return fmt.Errorf("mcp connect: %w", err)
 	}
 
-	c.mcpClient = mcpClient
+	c.session = session
 	return nil
 }
 
 func (c *Client) ListTools(ctx context.Context) (*mcp.ListToolsResult, error) {
-	if c.mcpClient == nil {
+	if c.session == nil {
 		return nil, fmt.Errorf("client not connected")
 	}
-	return c.mcpClient.ListTools(ctx, mcp.ListToolsRequest{})
+	return c.session.ListTools(ctx, nil)
 }
 
 func (c *Client) CallTool(ctx context.Context, name string, args map[string]any) (*mcp.CallToolResult, error) {
-	if c.mcpClient == nil {
+	if c.session == nil {
 		return nil, fmt.Errorf("client not connected")
 	}
-	req := mcp.CallToolRequest{}
-	req.Params.Name = name
-	req.Params.Arguments = args
-	return c.mcpClient.CallTool(ctx, req)
+	return c.session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      name,
+		Arguments: args,
+	})
 }
 
 func (c *Client) Ping(ctx context.Context) error {
-	if c.mcpClient == nil {
+	if c.session == nil {
 		return fmt.Errorf("client not connected")
 	}
-	return c.mcpClient.Ping(ctx)
+	return c.session.Ping(ctx, nil)
 }
 
 func (c *Client) Close() error {
-	if c.mcpClient != nil {
-		c.mcpClient.Close()
+	if c.session != nil {
+		c.session.Close()
 	}
 	return c.closeTransport()
 }
@@ -123,15 +127,3 @@ func (c *Client) closeTransport() error {
 	}
 	return nil
 }
-
-func (c *Client) Underlying() *client.Client { return c.mcpClient }
-
-type writeCloser struct{ stream *quic.Stream }
-
-func (w *writeCloser) Write(p []byte) (int, error) { return (*w.stream).Write(p) }
-func (w *writeCloser) Close() error                { return (*w.stream).Close() }
-
-type nopReadCloser struct{}
-
-func (nopReadCloser) Read([]byte) (int, error) { return 0, io.EOF }
-func (nopReadCloser) Close() error             { return nil }

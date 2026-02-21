@@ -11,17 +11,68 @@ import (
 	"time"
 )
 
+// ValidateFilterSpec checks that WHERE clauses in the spec do not contain
+// dangerous SQL patterns (multi-statement, DDL, etc.). This is a defense-in-depth
+// measure — FilterSpec is expected to be set by the deployer, not end users.
+func ValidateFilterSpec(spec FilterSpec) error {
+	for table, where := range spec.FilteredTables {
+		if err := validateWhereClause(where); err != nil {
+			return fmt.Errorf("dbsync: FilteredTables[%s]: %w", table, err)
+		}
+	}
+	for table, pt := range spec.PartialTables {
+		if pt.Where != "" {
+			if err := validateWhereClause(pt.Where); err != nil {
+				return fmt.Errorf("dbsync: PartialTables[%s]: %w", table, err)
+			}
+		}
+	}
+	return nil
+}
+
+// validateWhereClause rejects WHERE clauses that contain multi-statement, DDL,
+// DML, or subquery patterns that could be used for SQL injection.
+func validateWhereClause(clause string) error {
+	if strings.Contains(clause, ";") {
+		return fmt.Errorf("WHERE clause must not contain semicolons")
+	}
+	if strings.Contains(clause, "--") {
+		return fmt.Errorf("WHERE clause must not contain SQL comments")
+	}
+	if strings.Contains(clause, "/*") {
+		return fmt.Errorf("WHERE clause must not contain block comments")
+	}
+	upper := strings.ToUpper(clause)
+	blocked := []string{
+		"DROP ", "ALTER ", "CREATE ", "ATTACH ", "DETACH ",
+		"INSERT ", "UPDATE ", "DELETE ", "REPLACE ",
+		"UNION ", "UNION\t", "UNION\n",
+		"INTO ", "EXEC ", "EXECUTE ",
+		"LOAD_EXTENSION", "PRAGMA ",
+	}
+	for _, kw := range blocked {
+		if strings.Contains(upper, kw) {
+			return fmt.Errorf("WHERE clause must not contain keyword %q", strings.TrimSpace(kw))
+		}
+	}
+	return nil
+}
+
 // ProduceSnapshot creates a filtered copy of srcDB at dstPath.
 //
 // Steps:
-//  1. VACUUM INTO a temporary file (consistent snapshot of entire DB)
-//  2. Open the copy with the plain "sqlite" driver
-//  3. Drop tables not in the FilterSpec whitelist
-//  4. Apply WHERE clauses (FilteredTables)
-//  5. Truncate non-selected columns (PartialTables)
-//  6. VACUUM to compact
-//  7. SHA-256 hash the result
+//  1. Validate WHERE clauses in the FilterSpec
+//  2. VACUUM INTO a temporary file (consistent snapshot of entire DB)
+//  3. Open the copy with the plain "sqlite" driver
+//  4. Drop tables not in the FilterSpec whitelist
+//  5. Apply WHERE clauses (FilteredTables)
+//  6. Truncate non-selected columns (PartialTables)
+//  7. VACUUM to compact
+//  8. SHA-256 hash the result
 func ProduceSnapshot(srcDB *sql.DB, dstPath string, spec FilterSpec) (*SnapshotMeta, error) {
+	if err := ValidateFilterSpec(spec); err != nil {
+		return nil, err
+	}
 	tmpPath := dstPath + ".tmp"
 	defer os.Remove(tmpPath)
 

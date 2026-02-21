@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/hazyhaar/pkg/horosafe"
 	"github.com/hazyhaar/pkg/sas_chunker"
 )
 
@@ -25,6 +26,11 @@ type UploadResult struct {
 // (no intermediate temp file), checks dedup, and records the piece in the DB.
 // Manifest.json, Verify() and Assemble() all work out of the box.
 func ReceiveFile(r io.Reader, dossierID string, cfg *Config, store *Store) (*UploadResult, error) {
+	// Path traversal guard: dossierID is used in file paths.
+	if err := horosafe.ValidateIdentifier(dossierID); err != nil {
+		return nil, fmt.Errorf("invalid dossier ID: %w", err)
+	}
+
 	// Stage 1: stream directly into chunks while hashing.
 	// We use a counting reader to enforce the max file size limit.
 	limited := io.LimitReader(r, cfg.MaxFileBytes()+1) // +1 to detect overflow

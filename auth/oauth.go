@@ -4,9 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 
+	"github.com/hazyhaar/pkg/horosafe"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 )
@@ -53,7 +53,7 @@ func FetchGoogleUser(ctx context.Context, oauthCfg *oauth2.Config, code string) 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := horosafe.LimitedReadAll(resp.Body, horosafe.MaxResponseBody)
 		return nil, nil, fmt.Errorf("google userinfo returned %d: %s", resp.StatusCode, body)
 	}
 

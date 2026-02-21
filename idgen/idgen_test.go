@@ -82,10 +82,15 @@ func TestTimestamped(t *testing.T) {
 	}
 }
 
-func TestDefault_And_New(t *testing.T) {
+func TestDefault_IsUUIDv7(t *testing.T) {
 	id := New()
-	if len(id) != 12 {
-		t.Fatalf("New: expected length 12, got %d for %q", len(id), id)
+	// UUIDv7 format: 8-4-4-4-12 = 36 chars
+	if len(id) != 36 {
+		t.Fatalf("New (UUIDv7 default): expected length 36, got %d for %q", len(id), id)
+	}
+	// Must be a valid UUID
+	if _, err := Parse(id); err != nil {
+		t.Fatalf("New: default should produce valid UUIDv7: %v", err)
 	}
 }
 

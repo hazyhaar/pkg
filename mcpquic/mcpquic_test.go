@@ -168,8 +168,8 @@ func TestNewClient_DefaultTLS(t *testing.T) {
 	if c.tlsCfg == nil {
 		t.Fatal("TLS config should not be nil with default")
 	}
-	if !c.tlsCfg.InsecureSkipVerify {
-		t.Fatal("default TLS should be insecure (dev mode)")
+	if c.tlsCfg.InsecureSkipVerify {
+		t.Fatal("default TLS should be secure (verify server cert)")
 	}
 }
 

@@ -12,7 +12,7 @@ func SetTokenCookie(w http.ResponseWriter, token, domain string, secure bool) {
 		Path:     "/",
 		MaxAge:   86400, // 24h
 		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
+		SameSite: http.SameSiteStrictMode,
 		Secure:   secure,
 	}
 	if domain != "" {
