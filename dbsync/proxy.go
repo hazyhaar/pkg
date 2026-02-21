@@ -2,6 +2,7 @@ package dbsync
 
 import (
 	"crypto/tls"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httputil"
@@ -19,12 +20,15 @@ type WriteProxy struct {
 }
 
 // NewWriteProxy creates a reverse proxy that forwards requests to boEndpoint.
-// boEndpoint should be an HTTP(S) URL, e.g. "https://bo.internal:8443".
-func NewWriteProxy(boEndpoint string, tlsCfg *tls.Config) *WriteProxy {
+// boEndpoint must be a valid HTTP(S) URL, e.g. "https://bo.internal:8443".
+// Returns an error if the endpoint URL cannot be parsed.
+func NewWriteProxy(boEndpoint string, tlsCfg *tls.Config) (*WriteProxy, error) {
 	target, err := url.Parse(boEndpoint)
 	if err != nil {
-		slog.Error("dbsync proxy: invalid BO endpoint", "endpoint", boEndpoint, "error", err)
-		target = &url.URL{Scheme: "https", Host: "localhost:8443"}
+		return nil, fmt.Errorf("dbsync proxy: invalid BO endpoint %q: %w", boEndpoint, err)
+	}
+	if target.Host == "" {
+		return nil, fmt.Errorf("dbsync proxy: BO endpoint %q has no host", boEndpoint)
 	}
 
 	proxy := httputil.NewSingleHostReverseProxy(target)
@@ -47,7 +51,7 @@ func NewWriteProxy(boEndpoint string, tlsCfg *tls.Config) *WriteProxy {
 		tlsCfg:     tlsCfg,
 		logger:     slog.Default(),
 		proxy:      proxy,
-	}
+	}, nil
 }
 
 // Handler returns an http.Handler that proxies all requests to the BO.
@@ -55,8 +59,9 @@ func (p *WriteProxy) Handler() http.Handler {
 	return p.proxy
 }
 
-// RedirectHandler returns an http.Handler that redirects to the BO URL
-// instead of proxying. Simpler alternative when the BO is directly accessible.
+// RedirectHandler returns an http.HandlerFunc that redirects the client to
+// the BO URL instead of proxying. This is a simpler alternative when the BO
+// is directly accessible from the user's browser.
 func RedirectHandler(boURL string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		target := boURL + r.URL.Path

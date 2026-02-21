@@ -14,8 +14,11 @@ import (
 	"io"
 	"math/big"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -78,6 +81,26 @@ func setupTestDB(t *testing.T, dir string) (*sql.DB, string) {
 	}
 
 	return db, dbPath
+}
+
+// setupRoutesDB creates a routes table for testing.
+func setupRoutesDB(t *testing.T, dir string) *sql.DB {
+	t.Helper()
+	routesDB, err := sql.Open("sqlite", filepath.Join(dir, "routes.db"))
+	if err != nil {
+		t.Fatalf("open routes: %v", err)
+	}
+	_, err = routesDB.Exec(`CREATE TABLE IF NOT EXISTS routes (
+		service_name TEXT PRIMARY KEY,
+		strategy TEXT NOT NULL,
+		endpoint TEXT,
+		config TEXT DEFAULT '{}',
+		updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+	)`)
+	if err != nil {
+		t.Fatalf("create routes: %v", err)
+	}
+	return routesDB
 }
 
 func TestFilterExcludesPrivateData(t *testing.T) {
@@ -315,35 +338,20 @@ func TestPublisherProducesSnapshot(t *testing.T) {
 	db, _ := setupTestDB(t, dir)
 	defer db.Close()
 
-	// Create routes DB with no targets (publisher still works, just no push).
-	routesDB, err := sql.Open("sqlite", filepath.Join(dir, "routes.db"))
-	if err != nil {
-		t.Fatalf("open routes: %v", err)
-	}
+	routesDB := setupRoutesDB(t, dir)
 	defer routesDB.Close()
-
-	_, err = routesDB.Exec(`CREATE TABLE IF NOT EXISTS routes (
-		service_name TEXT PRIMARY KEY,
-		strategy TEXT NOT NULL,
-		endpoint TEXT,
-		config TEXT DEFAULT '{}',
-		updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
-	)`)
-	if err != nil {
-		t.Fatalf("create routes: %v", err)
-	}
 
 	savePath := filepath.Join(dir, "save_chaude.db")
 	tlsCfg := SyncClientTLSConfig(true)
 
-	pub := NewPublisher(db, routesDB, FilterSpec{
+	pub := NewPublisherWithRoutesDB(db, routesDB, FilterSpec{
 		FullTables: []string{"engagements"},
 	}, savePath, tlsCfg)
 
 	ctx := context.Background()
 
 	// Directly call publish to verify the core logic works.
-	err = pub.publish(ctx)
+	err := pub.publish(ctx)
 	if err != nil {
 		t.Fatalf("publish: %v", err)
 	}
@@ -415,19 +423,11 @@ func TestPublisherWatchIntegration(t *testing.T) {
 	defer readerDB.Close()
 	readerDB.Exec("PRAGMA journal_mode=WAL")
 
-	routesDB, err := sql.Open("sqlite", filepath.Join(dir, "routes.db"))
-	if err != nil {
-		t.Fatalf("open routes: %v", err)
-	}
+	routesDB := setupRoutesDB(t, dir)
 	defer routesDB.Close()
-	routesDB.Exec(`CREATE TABLE IF NOT EXISTS routes (
-		service_name TEXT PRIMARY KEY, strategy TEXT NOT NULL,
-		endpoint TEXT, config TEXT DEFAULT '{}',
-		updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
-	)`)
 
 	savePath := filepath.Join(dir, "save_chaude.db")
-	pub := NewPublisher(readerDB, routesDB, FilterSpec{
+	pub := NewPublisherWithRoutesDB(readerDB, routesDB, FilterSpec{
 		FullTables: []string{"engagements"},
 	}, savePath, SyncClientTLSConfig(true),
 		WithWatchInterval(50*time.Millisecond),
@@ -484,12 +484,25 @@ func TestRoundTripQUIC(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// Start listener.
+	// Start listener on :0 to get a random port, then extract the actual address.
 	subDBPath := filepath.Join(dir, "received.db")
 	received := make(chan SnapshotMeta, 1)
+	listenerReady := make(chan string, 1)
 
 	go func() {
-		ListenSnapshots(ctx, "127.0.0.1:0", serverTLS, func(m SnapshotMeta, r io.Reader) error {
+		// We need to get the actual listen address. Use a net.ListenPacket to
+		// grab a free port, then use that port for QUIC.
+		pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+		if err != nil {
+			t.Errorf("listen packet: %v", err)
+			return
+		}
+		addr := pc.LocalAddr().String()
+		pc.Close()
+
+		listenerReady <- addr
+
+		ListenSnapshots(ctx, addr, serverTLS, func(m SnapshotMeta, r io.Reader) error {
 			f, _ := os.Create(subDBPath)
 			io.Copy(f, r)
 			f.Close()
@@ -498,16 +511,21 @@ func TestRoundTripQUIC(t *testing.T) {
 		})
 	}()
 
-	// Give listener time to start — for a real test we'd use a channel.
-	time.Sleep(200 * time.Millisecond)
+	// Wait for listener address.
+	var listenAddr string
+	select {
+	case listenAddr = <-listenerReady:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for listener to start")
+	}
+
+	// Give listener time to actually bind.
+	time.Sleep(100 * time.Millisecond)
 
 	// Push snapshot.
-	err = PushSnapshot(ctx, "127.0.0.1:9444", clientTLS, *meta, snapPath)
-	// This may fail if port is not bound — that's expected in unit tests
-	// without proper port coordination. The important thing is the wire
-	// format is correct.
+	err = PushSnapshot(ctx, listenAddr, clientTLS, *meta, snapPath)
 	if err != nil {
-		t.Skipf("QUIC push failed (expected in unit test without port coordination): %v", err)
+		t.Skipf("QUIC push failed (may be port timing issue): %v", err)
 	}
 
 	select {
@@ -525,36 +543,17 @@ func TestNoopPausesSync(t *testing.T) {
 	db, _ := setupTestDB(t, dir)
 	defer db.Close()
 
-	routesDB, err := sql.Open("sqlite", filepath.Join(dir, "routes.db"))
-	if err != nil {
-		t.Fatalf("open routes: %v", err)
-	}
+	routesDB := setupRoutesDB(t, dir)
 	defer routesDB.Close()
 
-	_, err = routesDB.Exec(`CREATE TABLE IF NOT EXISTS routes (
-		service_name TEXT PRIMARY KEY,
-		strategy TEXT NOT NULL,
-		endpoint TEXT,
-		config TEXT DEFAULT '{}',
-		updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
-	)`)
-	if err != nil {
-		t.Fatalf("create routes: %v", err)
-	}
-
 	// Insert a noop route.
-	_, err = routesDB.Exec(`INSERT INTO routes (service_name, strategy, endpoint) VALUES ('dbsync:fo-1', 'noop', 'quic://127.0.0.1:19443')`)
+	_, err := routesDB.Exec(`INSERT INTO routes (service_name, strategy, endpoint) VALUES ('dbsync:fo-1', 'noop', 'quic://127.0.0.1:19443')`)
 	if err != nil {
 		t.Fatalf("insert route: %v", err)
 	}
 
-	savePath := filepath.Join(dir, "save.db")
-	pub := NewPublisher(db, routesDB, FilterSpec{
-		FullTables: []string{"engagements"},
-	}, savePath, SyncClientTLSConfig(true))
-
-	ctx := context.Background()
-	targets, err := pub.loadTargets(ctx)
+	provider := NewRoutesTargetProvider(routesDB)
+	targets, err := provider.Targets(context.Background())
 	if err != nil {
 		t.Fatalf("load targets: %v", err)
 	}
@@ -562,8 +561,306 @@ func TestNoopPausesSync(t *testing.T) {
 	if len(targets) != 1 {
 		t.Fatalf("expected 1 target, got %d", len(targets))
 	}
-	if targets[0].strategy != "noop" {
-		t.Errorf("expected strategy 'noop', got %q", targets[0].strategy)
+	if targets[0].Strategy != "noop" {
+		t.Errorf("expected strategy 'noop', got %q", targets[0].Strategy)
+	}
+}
+
+// --- New tests ---
+
+func TestStaticTargetProvider(t *testing.T) {
+	p := NewStaticTargetProvider(
+		Target{Name: "fo-1", Strategy: "dbsync", Endpoint: "10.0.0.1:9443"},
+		Target{Name: "fo-2", Strategy: "noop", Endpoint: "10.0.0.2:9443"},
+	)
+
+	targets, err := p.Targets(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(targets) != 2 {
+		t.Fatalf("expected 2 targets, got %d", len(targets))
+	}
+	if targets[0].Name != "fo-1" || targets[0].Strategy != "dbsync" {
+		t.Errorf("target[0] = %+v, want fo-1/dbsync", targets[0])
+	}
+	if targets[1].Name != "fo-2" || targets[1].Strategy != "noop" {
+		t.Errorf("target[1] = %+v, want fo-2/noop", targets[1])
+	}
+}
+
+func TestRoutesTargetProvider(t *testing.T) {
+	dir := t.TempDir()
+	routesDB := setupRoutesDB(t, dir)
+	defer routesDB.Close()
+
+	// Insert targets.
+	for _, q := range []string{
+		`INSERT INTO routes (service_name, strategy, endpoint) VALUES ('dbsync:fo-1', 'dbsync', '10.0.0.1:9443')`,
+		`INSERT INTO routes (service_name, strategy, endpoint) VALUES ('dbsync:fo-2', 'noop', '10.0.0.2:9443')`,
+		`INSERT INTO routes (service_name, strategy, endpoint) VALUES ('mcp:service-a', 'quic', '10.0.0.3:9443')`, // not dbsync
+	} {
+		if _, err := routesDB.Exec(q); err != nil {
+			t.Fatalf("insert: %v", err)
+		}
+	}
+
+	provider := NewRoutesTargetProvider(routesDB)
+	targets, err := provider.Targets(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(targets) != 2 {
+		t.Fatalf("expected 2 dbsync targets, got %d", len(targets))
+	}
+}
+
+func TestPublisherWithStaticTargets(t *testing.T) {
+	dir := t.TempDir()
+	db, _ := setupTestDB(t, dir)
+	defer db.Close()
+
+	savePath := filepath.Join(dir, "save.db")
+
+	// Use static targets (no routes DB needed).
+	pub := NewPublisher(db, NewStaticTargetProvider(
+		Target{Name: "fo-1", Strategy: "noop", Endpoint: "127.0.0.1:19999"},
+	), FilterSpec{
+		FullTables: []string{"engagements"},
+	}, savePath, SyncClientTLSConfig(true))
+
+	ctx := context.Background()
+	err := pub.publish(ctx)
+	if err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+
+	if pub.LastMeta() == nil {
+		t.Fatal("expected snapshot metadata")
+	}
+
+	// Verify dedup: second publish with same data should not change hash.
+	hash1 := pub.LastMeta().Hash
+	err = pub.publish(ctx)
+	if err != nil {
+		t.Fatalf("publish 2: %v", err)
+	}
+	if pub.LastMeta().Hash != hash1 {
+		t.Error("expected same hash for unchanged data")
+	}
+}
+
+func TestPublisherPing(t *testing.T) {
+	dir := t.TempDir()
+	db, _ := setupTestDB(t, dir)
+	defer db.Close()
+
+	pub := NewPublisher(db, NewStaticTargetProvider(), FilterSpec{}, filepath.Join(dir, "s.db"), nil)
+
+	if err := pub.Ping(context.Background()); err != nil {
+		t.Errorf("Ping should succeed on open DB: %v", err)
+	}
+
+	db.Close()
+	if err := pub.Ping(context.Background()); err == nil {
+		t.Error("Ping should fail on closed DB")
+	}
+}
+
+func TestSubscriber_Ping_NoSnapshot(t *testing.T) {
+	sub := NewSubscriber(filepath.Join(t.TempDir(), "nonexistent.db"), ":0", nil)
+
+	err := sub.Ping(context.Background())
+	if err == nil {
+		t.Error("Ping should fail when no snapshot received")
+	}
+	if !strings.Contains(err.Error(), "no snapshot") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestSubscriber_Ping_AfterSnapshot(t *testing.T) {
+	dir := t.TempDir()
+	db, _ := setupTestDB(t, dir)
+	defer db.Close()
+
+	spec := FilterSpec{FullTables: []string{"engagements"}}
+	snapPath := filepath.Join(dir, "snap.db")
+	meta, err := ProduceSnapshot(db, snapPath, spec)
+	if err != nil {
+		t.Fatalf("produce: %v", err)
+	}
+
+	subDBPath := filepath.Join(dir, "fo.db")
+	sub := NewSubscriber(subDBPath, ":0", nil)
+
+	f, err := os.Open(snapPath)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer f.Close()
+
+	if err := sub.handleSnapshot(*meta, f); err != nil {
+		t.Fatalf("handle: %v", err)
+	}
+
+	if err := sub.Ping(context.Background()); err != nil {
+		t.Errorf("Ping should succeed after snapshot: %v", err)
+	}
+
+	sub.Close()
+}
+
+func TestSubscriber_HashMismatch(t *testing.T) {
+	dir := t.TempDir()
+	db, _ := setupTestDB(t, dir)
+	defer db.Close()
+
+	spec := FilterSpec{FullTables: []string{"engagements"}}
+	snapPath := filepath.Join(dir, "snap.db")
+	meta, err := ProduceSnapshot(db, snapPath, spec)
+	if err != nil {
+		t.Fatalf("produce: %v", err)
+	}
+
+	subDBPath := filepath.Join(dir, "fo.db")
+	sub := NewSubscriber(subDBPath, ":0", nil)
+
+	f, err := os.Open(snapPath)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer f.Close()
+
+	// Tamper with the expected hash.
+	badMeta := *meta
+	badMeta.Hash = "0000000000000000000000000000000000000000000000000000000000000000"
+
+	err = sub.handleSnapshot(badMeta, f)
+	if err == nil {
+		t.Fatal("expected hash mismatch error")
+	}
+	if !strings.Contains(err.Error(), "hash mismatch") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestWriteProxy_ForwardsToBO(t *testing.T) {
+	bo := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("proxied"))
+	}))
+	defer bo.Close()
+
+	proxy, err := NewWriteProxy(bo.URL, nil)
+	if err != nil {
+		t.Fatalf("NewWriteProxy: %v", err)
+	}
+
+	req := httptest.NewRequest("POST", "/api/action", nil)
+	w := httptest.NewRecorder()
+
+	proxy.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+	if w.Body.String() != "proxied" {
+		t.Errorf("expected 'proxied', got %q", w.Body.String())
+	}
+}
+
+func TestWriteProxy_InvalidEndpoint(t *testing.T) {
+	_, err := NewWriteProxy("://invalid", nil)
+	if err == nil {
+		t.Error("expected error for invalid endpoint")
+	}
+
+	_, err = NewWriteProxy("", nil)
+	if err == nil {
+		t.Error("expected error for empty endpoint")
+	}
+}
+
+func TestRedirectHandler(t *testing.T) {
+	handler := RedirectHandler("https://bo.example.com")
+
+	req := httptest.NewRequest("GET", "/dashboard?tab=profile", nil)
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	resp := w.Result()
+	if resp.StatusCode != http.StatusTemporaryRedirect {
+		t.Errorf("expected 307, got %d", resp.StatusCode)
+	}
+	loc := resp.Header.Get("Location")
+	if loc != "https://bo.example.com/dashboard?tab=profile" {
+		t.Errorf("unexpected redirect: %s", loc)
+	}
+}
+
+func TestFilter_EmptySpec(t *testing.T) {
+	dir := t.TempDir()
+	db, _ := setupTestDB(t, dir)
+	defer db.Close()
+
+	// Empty spec = no tables kept.
+	spec := FilterSpec{}
+	dstPath := filepath.Join(dir, "empty.db")
+	meta, err := ProduceSnapshot(db, dstPath, spec)
+	if err != nil {
+		t.Fatalf("produce: %v", err)
+	}
+	if meta.Size <= 0 {
+		t.Error("expected positive file size even for empty snapshot")
+	}
+
+	snapDB, err := sql.Open("sqlite", dstPath)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer snapDB.Close()
+
+	var count int
+	err = snapDB.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").Scan(&count)
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("expected 0 user tables in empty spec snapshot, got %d", count)
+	}
+}
+
+func TestFilter_InvalidWhere(t *testing.T) {
+	spec := FilterSpec{
+		FilteredTables: map[string]string{
+			"users": "1=1; DROP TABLE users",
+		},
+	}
+	err := ValidateFilterSpec(spec)
+	if err == nil {
+		t.Error("expected error for semicolon in WHERE")
+	}
+
+	spec2 := FilterSpec{
+		PartialTables: map[string]PartialTable{
+			"users": {Columns: []string{"id"}, Where: "1=1 UNION SELECT * FROM admin"},
+		},
+	}
+	err = ValidateFilterSpec(spec2)
+	if err == nil {
+		t.Error("expected error for UNION in WHERE")
+	}
+
+	spec3 := FilterSpec{
+		FilteredTables: map[string]string{
+			"users": "1=1 -- comment",
+		},
+	}
+	err = ValidateFilterSpec(spec3)
+	if err == nil {
+		t.Error("expected error for SQL comment in WHERE")
 	}
 }
 

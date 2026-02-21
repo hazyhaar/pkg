@@ -1,4 +1,11 @@
-package dbsync
+// Package authproxy provides HTTP handlers that proxy authentication requests
+// from a front-office (FO) to a back-office (BO) internal API. The BO performs
+// the actual credential validation, and the proxy translates JSON responses into
+// cookies and redirects so that the user never sees the BO URL.
+//
+// This package was extracted from github.com/hazyhaar/pkg/dbsync to allow
+// services that need auth proxying without importing the full dbsync package.
+package authproxy
 
 import (
 	"bytes"
@@ -12,9 +19,6 @@ import (
 	horosauth "github.com/hazyhaar/pkg/auth"
 )
 
-// Deprecated: Use github.com/hazyhaar/pkg/authproxy instead.
-// This type is kept for backward compatibility with existing callers.
-//
 // AuthProxy calls the BO internal auth API and translates the JSON response
 // into cookies + redirects for the FO domain. The user never sees the BO URL.
 type AuthProxy struct {
@@ -26,6 +30,11 @@ type AuthProxy struct {
 }
 
 // NewAuthProxy creates an auth proxy that calls BO internal API endpoints.
+//
+// Parameters:
+//   - boURL: base URL of the back-office, e.g. "https://rv.docbusinessia.fr"
+//   - cookieDomain: cookie Domain attribute ("" uses the request host)
+//   - secure: whether to set the Secure flag on cookies (true for HTTPS)
 func NewAuthProxy(boURL, cookieDomain string, secure bool) *AuthProxy {
 	return &AuthProxy{
 		boURL:        boURL,
@@ -156,14 +165,11 @@ func (p *AuthProxy) callBO(path string, body []byte) (*authResponse, error) {
 
 	var ar authResponse
 	if err := json.Unmarshal(data, &ar); err != nil {
-		return nil, fmt.Errorf("decode response: %w (body: %s)", err, string(data[:minInt(len(data), 200)]))
+		preview := string(data)
+		if len(preview) > 200 {
+			preview = preview[:200]
+		}
+		return nil, fmt.Errorf("decode response: %w (body: %s)", err, preview)
 	}
 	return &ar, nil
-}
-
-func minInt(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

@@ -50,12 +50,35 @@ func SyncTLSConfig(certFile, keyFile string) (*tls.Config, error) {
 }
 
 // SyncClientTLSConfig returns a TLS config for connecting to a dbsync endpoint.
-func SyncClientTLSConfig(insecure bool) *tls.Config {
+//
+// WARNING: when insecureSkipVerify is true, the client accepts any server
+// certificate. This is only appropriate for local development and testing.
+// In production, use SyncClientTLSConfigWithCA to pin the CA certificate.
+func SyncClientTLSConfig(insecureSkipVerify bool) *tls.Config {
 	return &tls.Config{
 		NextProtos:         []string{ALPNProtocol},
 		MinVersion:         tls.VersionTLS13,
-		InsecureSkipVerify: insecure,
+		InsecureSkipVerify: insecureSkipVerify,
 	}
+}
+
+// SyncClientTLSConfigWithCA returns a TLS config that trusts the given CA
+// certificate file. Use this in production when the dbsync server uses a
+// self-signed or internal CA certificate.
+func SyncClientTLSConfigWithCA(caCertFile string) (*tls.Config, error) {
+	caPEM, err := os.ReadFile(caCertFile)
+	if err != nil {
+		return nil, fmt.Errorf("read CA cert: %w", err)
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(caPEM) {
+		return nil, fmt.Errorf("failed to parse CA cert from %s", caCertFile)
+	}
+	return &tls.Config{
+		RootCAs:    pool,
+		NextProtos: []string{ALPNProtocol},
+		MinVersion: tls.VersionTLS13,
+	}, nil
 }
 
 // PushSnapshot sends a snapshot file to a remote subscriber over QUIC.

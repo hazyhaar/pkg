@@ -13,10 +13,10 @@ import (
 )
 
 // Publisher watches a source database for changes, produces filtered snapshots,
-// and pushes them to all FO subscribers registered in the routes table.
+// and pushes them to all FO subscribers returned by the TargetProvider.
 type Publisher struct {
 	db       *sql.DB
-	routesDB *sql.DB
+	targets  TargetProvider
 	filter   FilterSpec
 	savePath string
 	tlsCfg   *tls.Config
@@ -26,30 +26,41 @@ type Publisher struct {
 	// lastMeta tracks the most recently produced snapshot.
 	mu       sync.RWMutex
 	lastMeta *SnapshotMeta
+	lastHash string // dedup: skip push when hash unchanged
 }
 
-// NewPublisher creates a Publisher.
+// NewPublisher creates a Publisher that resolves push targets via the given
+// TargetProvider. For services that push to a fixed set of FOs, use
+// NewStaticTargetProvider. For dynamic routing via a connectivity routes DB,
+// use NewRoutesTargetProvider.
 //
 // Parameters:
 //   - db: the source (BO) database to snapshot
-//   - routesDB: database containing the connectivity routes table
+//   - targets: provides the list of FO endpoints to push to
 //   - filter: defines which tables/columns are included
 //   - savePath: path for the local "save chaude" snapshot file
 //   - tlsCfg: TLS config for QUIC push (use SyncClientTLSConfig for dev)
-func NewPublisher(db, routesDB *sql.DB, filter FilterSpec, savePath string, tlsCfg *tls.Config, opts ...Option) *Publisher {
+func NewPublisher(db *sql.DB, targets TargetProvider, filter FilterSpec, savePath string, tlsCfg *tls.Config, opts ...Option) *Publisher {
 	o := defaultOptions()
 	for _, fn := range opts {
 		fn(&o)
 	}
 	return &Publisher{
 		db:       db,
-		routesDB: routesDB,
+		targets:  targets,
 		filter:   filter,
 		savePath: savePath,
 		tlsCfg:   tlsCfg,
 		logger:   slog.Default(),
 		opts:     o,
 	}
+}
+
+// NewPublisherWithRoutesDB creates a Publisher that reads push targets from a
+// connectivity routes table. This is the original constructor signature kept
+// for backward compatibility with repvow and other existing callers.
+func NewPublisherWithRoutesDB(db, routesDB *sql.DB, filter FilterSpec, savePath string, tlsCfg *tls.Config, opts ...Option) *Publisher {
+	return NewPublisher(db, NewRoutesTargetProvider(routesDB), filter, savePath, tlsCfg, opts...)
 }
 
 // Start watches the source database for changes and pushes snapshots to FOs.
@@ -64,6 +75,11 @@ func (p *Publisher) Start(ctx context.Context) error {
 		return p.publish(ctx)
 	})
 	return nil
+}
+
+// Ping verifies that the source database is accessible.
+func (p *Publisher) Ping(ctx context.Context) error {
+	return p.db.PingContext(ctx)
 }
 
 // LastMeta returns the metadata of the most recently produced snapshot.
@@ -83,8 +99,15 @@ func (p *Publisher) publish(ctx context.Context) error {
 	}
 
 	p.mu.Lock()
+	prevHash := p.lastHash
 	p.lastMeta = meta
+	p.lastHash = meta.Hash
 	p.mu.Unlock()
+
+	if meta.Hash == prevHash {
+		p.logger.Debug("dbsync: snapshot unchanged, skipping push", "hash", meta.Hash[:16]+"...")
+		return nil
+	}
 
 	p.logger.Info("dbsync: snapshot produced",
 		"version", meta.Version,
@@ -92,8 +115,8 @@ func (p *Publisher) publish(ctx context.Context) error {
 		"hash", meta.Hash[:16]+"...",
 	)
 
-	// Step 2: Read dbsync targets from routes table.
-	targets, err := p.loadTargets(ctx)
+	// Step 2: Read dbsync targets from provider.
+	targets, err := p.targets.Targets(ctx)
 	if err != nil {
 		p.logger.Error("dbsync: load targets failed", "error", err)
 		return fmt.Errorf("load targets: %w", err)
@@ -108,54 +131,28 @@ func (p *Publisher) publish(ctx context.Context) error {
 	var wg sync.WaitGroup
 	for _, t := range targets {
 		wg.Add(1)
-		go func(target syncTarget) {
+		go func(target Target) {
 			defer wg.Done()
 
-			if target.strategy == "noop" {
-				p.logger.Debug("dbsync: skipping noop target", "service", target.name)
+			if target.Strategy == "noop" {
+				p.logger.Debug("dbsync: skipping noop target", "service", target.Name)
 				return
 			}
 
 			p.logger.Info("dbsync: pushing to target",
-				"service", target.name, "endpoint", target.endpoint)
+				"service", target.Name, "endpoint", target.Endpoint)
 
-			if err := PushSnapshot(ctx, target.endpoint, p.tlsCfg, *meta, p.savePath); err != nil {
+			if err := PushSnapshot(ctx, target.Endpoint, p.tlsCfg, *meta, p.savePath); err != nil {
 				p.logger.Error("dbsync: push failed",
-					"service", target.name, "endpoint", target.endpoint, "error", err)
+					"service", target.Name, "endpoint", target.Endpoint, "error", err)
 			} else {
-				p.logger.Info("dbsync: push succeeded", "service", target.name)
+				p.logger.Info("dbsync: push succeeded", "service", target.Name)
 			}
 		}(t)
 	}
 	wg.Wait()
 
 	return nil
-}
-
-type syncTarget struct {
-	name     string
-	strategy string
-	endpoint string
-}
-
-// loadTargets reads dbsync routes from the connectivity routes table.
-func (p *Publisher) loadTargets(ctx context.Context) ([]syncTarget, error) {
-	rows, err := p.routesDB.QueryContext(ctx,
-		`SELECT service_name, strategy, COALESCE(endpoint, '') FROM routes WHERE strategy IN ('dbsync', 'noop') AND service_name LIKE 'dbsync:%'`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var targets []syncTarget
-	for rows.Next() {
-		var t syncTarget
-		if err := rows.Scan(&t.name, &t.strategy, &t.endpoint); err != nil {
-			return nil, err
-		}
-		targets = append(targets, t)
-	}
-	return targets, rows.Err()
 }
 
 // Status returns a JSON-serializable status summary.

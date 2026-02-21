@@ -7,7 +7,11 @@
 // management and hazyhaar_pkg/watch for change detection.
 package dbsync
 
-import "time"
+import (
+	"context"
+	"database/sql"
+	"time"
+)
 
 // ALPN and wire-format constants.
 const (
@@ -50,6 +54,67 @@ type SnapshotMeta struct {
 	Hash      string `json:"hash"`      // SHA-256 hex
 	Size      int64  `json:"size"`       // file size in bytes
 	Timestamp int64  `json:"timestamp"`  // unix epoch seconds
+}
+
+// TargetProvider returns the list of sync targets that a Publisher should push
+// snapshots to. Implementations range from a static list to a database-backed
+// route table.
+type TargetProvider interface {
+	Targets(ctx context.Context) ([]Target, error)
+}
+
+// Target describes a single FO endpoint that receives snapshots.
+type Target struct {
+	Name     string // identifier, e.g. "fo-1"
+	Strategy string // "dbsync" or "noop"
+	Endpoint string // "ip:port" for QUIC dial
+}
+
+// StaticTargetProvider returns a fixed list of targets.
+type StaticTargetProvider struct {
+	targets []Target
+}
+
+// NewStaticTargetProvider creates a TargetProvider from a fixed list of targets.
+func NewStaticTargetProvider(targets ...Target) *StaticTargetProvider {
+	return &StaticTargetProvider{targets: targets}
+}
+
+// Targets returns the static list.
+func (p *StaticTargetProvider) Targets(_ context.Context) ([]Target, error) {
+	return p.targets, nil
+}
+
+// RoutesTargetProvider reads dbsync targets from a connectivity routes table.
+type RoutesTargetProvider struct {
+	db *sql.DB
+}
+
+// NewRoutesTargetProvider creates a TargetProvider backed by the connectivity
+// routes table in db. It queries rows where strategy IN ('dbsync', 'noop')
+// AND service_name LIKE 'dbsync:%'.
+func NewRoutesTargetProvider(db *sql.DB) *RoutesTargetProvider {
+	return &RoutesTargetProvider{db: db}
+}
+
+// Targets queries the routes table for dbsync endpoints.
+func (p *RoutesTargetProvider) Targets(ctx context.Context) ([]Target, error) {
+	rows, err := p.db.QueryContext(ctx,
+		`SELECT service_name, strategy, COALESCE(endpoint, '') FROM routes WHERE strategy IN ('dbsync', 'noop') AND service_name LIKE 'dbsync:%'`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var targets []Target
+	for rows.Next() {
+		var t Target
+		if err := rows.Scan(&t.Name, &t.Strategy, &t.Endpoint); err != nil {
+			return nil, err
+		}
+		targets = append(targets, t)
+	}
+	return targets, rows.Err()
 }
 
 // Option configures Publisher or Subscriber.

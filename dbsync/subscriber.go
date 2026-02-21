@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -74,6 +75,20 @@ func (s *Subscriber) OnSwap(fn func()) {
 	s.mu.Lock()
 	s.onSwap = append(s.onSwap, fn)
 	s.mu.Unlock()
+}
+
+// Ping reports whether the subscriber is healthy. It returns nil if a snapshot
+// has been received and the database is accessible, or an error describing
+// what is missing (no snapshot, DB unreachable).
+func (s *Subscriber) Ping(ctx context.Context) error {
+	db := s.db.Load()
+	if db == nil {
+		return errors.New("dbsync subscriber: no snapshot received yet")
+	}
+	if err := db.PingContext(ctx); err != nil {
+		return fmt.Errorf("dbsync subscriber: database unreachable: %w", err)
+	}
+	return nil
 }
 
 // Version returns the version of the last received snapshot.
