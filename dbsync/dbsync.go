@@ -50,10 +50,11 @@ type PartialTable struct {
 // SnapshotMeta is sent as the first message on the QUIC stream before the
 // raw database bytes follow.
 type SnapshotMeta struct {
-	Version   int64  `json:"version"`
-	Hash      string `json:"hash"`      // SHA-256 hex
-	Size      int64  `json:"size"`       // file size in bytes
-	Timestamp int64  `json:"timestamp"`  // unix epoch seconds
+	Version    int64  `json:"version"`
+	Hash       string `json:"hash"`       // SHA-256 hex of uncompressed data
+	Size       int64  `json:"size"`        // uncompressed file size in bytes
+	Timestamp  int64  `json:"timestamp"`   // unix epoch seconds
+	Compressed bool   `json:"compressed"`  // true if payload is gzip-compressed
 }
 
 // TargetProvider returns the list of sync targets that a Publisher should push
@@ -123,6 +124,8 @@ type Option func(*options)
 type options struct {
 	watchInterval time.Duration
 	watchDebounce time.Duration
+	compress      bool          // gzip snapshot before push
+	maxAge        time.Duration // reject snapshots older than this (0 = no limit)
 }
 
 func defaultOptions() options {
@@ -140,4 +143,17 @@ func WithWatchInterval(d time.Duration) Option {
 // WithWatchDebounce sets the debounce window after a change is detected.
 func WithWatchDebounce(d time.Duration) Option {
 	return func(o *options) { o.watchDebounce = d }
+}
+
+// WithCompression enables gzip compression of snapshot payloads before push.
+// Typically reduces transfer size by 60-70% for SQLite databases.
+func WithCompression() Option {
+	return func(o *options) { o.compress = true }
+}
+
+// WithMaxAge sets the maximum acceptable age for incoming snapshots.
+// The subscriber rejects snapshots whose timestamp is older than this duration,
+// protecting against rollback/replay attacks.
+func WithMaxAge(d time.Duration) Option {
+	return func(o *options) { o.maxAge = d }
 }

@@ -97,6 +97,7 @@ func (p *Publisher) publish(ctx context.Context) error {
 		p.logger.Error("dbsync: produce snapshot failed", "error", err)
 		return fmt.Errorf("produce snapshot: %w", err)
 	}
+	meta.Compressed = p.opts.compress
 
 	p.mu.Lock()
 	prevHash := p.lastHash

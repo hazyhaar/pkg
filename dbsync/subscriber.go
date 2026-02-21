@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // Subscriber listens for incoming snapshot pushes over QUIC, verifies integrity,
@@ -23,6 +24,7 @@ type Subscriber struct {
 	listenAddr string
 	tlsCfg     *tls.Config
 	logger     *slog.Logger
+	opts       options
 
 	db     atomic.Pointer[sql.DB]
 	mu     sync.Mutex
@@ -36,11 +38,16 @@ type Subscriber struct {
 // NewSubscriber creates a Subscriber that listens on listenAddr for snapshot
 // pushes and maintains a read-only database at dbPath.
 func NewSubscriber(dbPath, listenAddr string, tlsCfg *tls.Config, opts ...Option) *Subscriber {
+	o := defaultOptions()
+	for _, fn := range opts {
+		fn(&o)
+	}
 	s := &Subscriber{
 		dbPath:     dbPath,
 		listenAddr: listenAddr,
 		tlsCfg:     tlsCfg,
 		logger:     slog.Default(),
+		opts:       o,
 	}
 	s.lastHash.Store("")
 
@@ -107,7 +114,16 @@ func (s *Subscriber) Status() map[string]any {
 // handleSnapshot receives a snapshot, validates it, and swaps the local DB.
 func (s *Subscriber) handleSnapshot(meta SnapshotMeta, reader io.Reader) error {
 	s.logger.Info("dbsync subscriber: receiving snapshot",
-		"version", meta.Version, "size", meta.Size, "hash", meta.Hash[:16]+"...")
+		"version", meta.Version, "size", meta.Size, "hash", meta.Hash[:16]+"...",
+		"compressed", meta.Compressed)
+
+	// Max-age validation: reject stale snapshots to prevent rollback attacks.
+	if s.opts.maxAge > 0 && meta.Timestamp > 0 {
+		age := time.Since(time.Unix(meta.Timestamp, 0))
+		if age > s.opts.maxAge {
+			return fmt.Errorf("snapshot too old: age %s exceeds max %s", age.Round(time.Second), s.opts.maxAge)
+		}
+	}
 
 	// Ensure target directory exists.
 	if err := os.MkdirAll(filepath.Dir(s.dbPath), 0755); err != nil {

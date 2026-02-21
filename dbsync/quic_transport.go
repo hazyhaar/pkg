@@ -1,6 +1,7 @@
 package dbsync
 
 import (
+	"compress/gzip"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -81,13 +82,45 @@ func SyncClientTLSConfigWithCA(caCertFile string) (*tls.Config, error) {
 	}, nil
 }
 
+// SyncTLSConfigMutual builds a TLS config for the subscriber (listener) that
+// requires the publisher to present a valid client certificate signed by the
+// given CA. This prevents rogue clients from pushing snapshots.
+//
+// certFile/keyFile: the subscriber's own certificate.
+// caCertFile: the CA certificate that signed the publisher's certificate.
+func SyncTLSConfigMutual(certFile, keyFile, caCertFile string) (*tls.Config, error) {
+	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+	if err != nil {
+		return nil, fmt.Errorf("load keypair: %w", err)
+	}
+
+	caPEM, err := os.ReadFile(caCertFile)
+	if err != nil {
+		return nil, fmt.Errorf("read CA cert: %w", err)
+	}
+	caPool := x509.NewCertPool()
+	if !caPool.AppendCertsFromPEM(caPEM) {
+		return nil, fmt.Errorf("failed to parse CA cert from %s", caCertFile)
+	}
+
+	// Also trust the CA for outbound (if this config is reused as client).
+	return &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		ClientCAs:    caPool,
+		RootCAs:      caPool,
+		ClientAuth:   tls.RequireAndVerifyClientCert,
+		NextProtos:   []string{ALPNProtocol},
+		MinVersion:   tls.VersionTLS13,
+	}, nil
+}
+
 // PushSnapshot sends a snapshot file to a remote subscriber over QUIC.
 //
 // Wire format:
 //  1. Magic bytes "SYN1" (4 bytes)
 //  2. Meta length (4 bytes big-endian uint32)
 //  3. Meta JSON (variable)
-//  4. Raw snapshot bytes (meta.Size bytes)
+//  4. Snapshot bytes (gzip-compressed if meta.Compressed, raw otherwise)
 func PushSnapshot(ctx context.Context, endpoint string, tlsCfg *tls.Config, meta SnapshotMeta, snapshotPath string) error {
 	conn, err := quic.DialAddr(ctx, endpoint, tlsCfg, quicConfig())
 	if err != nil {
@@ -128,12 +161,23 @@ func PushSnapshot(ctx context.Context, endpoint string, tlsCfg *tls.Config, meta
 	}
 	defer f.Close()
 
-	n, err := io.Copy(stream, f)
-	if err != nil {
-		return fmt.Errorf("dbsync push: copy data: %w", err)
-	}
-	if n != meta.Size {
-		return fmt.Errorf("dbsync push: size mismatch: sent %d, expected %d", n, meta.Size)
+	if meta.Compressed {
+		// Gzip directly into the QUIC stream.
+		gw := gzip.NewWriter(stream)
+		if _, err := io.Copy(gw, f); err != nil {
+			return fmt.Errorf("dbsync push: gzip copy: %w", err)
+		}
+		if err := gw.Close(); err != nil {
+			return fmt.Errorf("dbsync push: gzip close: %w", err)
+		}
+	} else {
+		n, err := io.Copy(stream, f)
+		if err != nil {
+			return fmt.Errorf("dbsync push: copy data: %w", err)
+		}
+		if n != meta.Size {
+			return fmt.Errorf("dbsync push: size mismatch: sent %d, expected %d", n, meta.Size)
+		}
 	}
 
 	return nil
@@ -215,7 +259,18 @@ func handleIncoming(ctx context.Context, conn *quic.Conn, handler func(SnapshotM
 		return fmt.Errorf("snapshot too large: %d bytes", meta.Size)
 	}
 
-	// Pass limited reader to handler.
-	reader := io.LimitReader(stream, meta.Size)
+	// Build the appropriate reader based on compression.
+	var reader io.Reader
+	if meta.Compressed {
+		gr, err := gzip.NewReader(stream)
+		if err != nil {
+			return fmt.Errorf("gzip reader: %w", err)
+		}
+		defer gr.Close()
+		reader = io.LimitReader(gr, meta.Size)
+	} else {
+		reader = io.LimitReader(stream, meta.Size)
+	}
+
 	return handler(meta, reader)
 }
