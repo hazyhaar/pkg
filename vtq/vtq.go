@@ -104,7 +104,7 @@ func (q *Q) EnsureTable(ctx context.Context) error {
 
 // Publish inserts a job that is immediately visible.
 func (q *Q) Publish(ctx context.Context, id string, payload []byte) error {
-	now := time.Now().Unix()
+	now := time.Now().UnixMilli()
 	_, err := q.db.ExecContext(ctx,
 		`INSERT INTO vtq_jobs (id, queue, payload, visible_at, created_at) VALUES (?,?,?,?,?)`,
 		id, q.opts.Queue, payload, now, now,
@@ -117,7 +117,7 @@ func (q *Q) Publish(ctx context.Context, id string, payload []byte) error {
 // is available.
 func (q *Q) Claim(ctx context.Context) (*Job, error) {
 	now := time.Now()
-	hideUntil := now.Add(q.opts.Visibility).Unix()
+	hideUntil := now.Add(q.opts.Visibility).UnixMilli()
 
 	row := q.db.QueryRowContext(ctx, `
 		UPDATE vtq_jobs
@@ -129,7 +129,7 @@ func (q *Q) Claim(ctx context.Context) (*Job, error) {
 			LIMIT 1
 		)
 		RETURNING id, queue, payload, visible_at, created_at, attempts`,
-		hideUntil, q.opts.Queue, now.Unix(),
+		hideUntil, q.opts.Queue, now.UnixMilli(),
 	)
 
 	var j Job
@@ -141,8 +141,8 @@ func (q *Q) Claim(ctx context.Context) (*Job, error) {
 	if err != nil {
 		return nil, err
 	}
-	j.VisibleAt = time.Unix(visAt, 0)
-	j.CreatedAt = time.Unix(creAt, 0)
+	j.VisibleAt = time.UnixMilli(visAt)
+	j.CreatedAt = time.UnixMilli(creAt)
 	return &j, nil
 }
 
@@ -165,7 +165,7 @@ func (q *Q) Nack(ctx context.Context, id string) error {
 // Extend pushes the visibility timeout forward for a job that needs more
 // processing time (heartbeat pattern).
 func (q *Q) Extend(ctx context.Context, id string, extra time.Duration) error {
-	hideUntil := time.Now().Add(extra).Unix()
+	hideUntil := time.Now().Add(extra).UnixMilli()
 	_, err := q.db.ExecContext(ctx,
 		`UPDATE vtq_jobs SET visible_at = ? WHERE id = ? AND queue = ?`,
 		hideUntil, id, q.opts.Queue,
