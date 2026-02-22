@@ -31,6 +31,7 @@ import (
 	"database/sql"
 	"errors"
 	"log/slog"
+	"sync"
 	"time"
 )
 
@@ -237,6 +238,121 @@ func (q *Q) poll(ctx context.Context, handler Handler, log *slog.Logger) {
 			_ = q.Nack(ctx, job.ID)
 		} else {
 			_ = q.Ack(ctx, job.ID)
+		}
+	}
+}
+
+// BatchClaim atomically claims up to n visible jobs. It returns an empty
+// (non-nil) slice when no jobs are available.
+func (q *Q) BatchClaim(ctx context.Context, n int) ([]*Job, error) {
+	now := time.Now()
+	hideUntil := now.Add(q.opts.Visibility).UnixMilli()
+
+	rows, err := q.db.QueryContext(ctx, `
+		UPDATE vtq_jobs
+		SET visible_at = ?, attempts = attempts + 1
+		WHERE id IN (
+			SELECT id FROM vtq_jobs
+			WHERE queue = ? AND visible_at <= ?
+			ORDER BY visible_at ASC
+			LIMIT ?
+		)
+		RETURNING id, queue, payload, visible_at, created_at, attempts`,
+		hideUntil, q.opts.Queue, now.UnixMilli(), n,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var jobs []*Job
+	for rows.Next() {
+		var j Job
+		var visAt, creAt int64
+		if err := rows.Scan(&j.ID, &j.Queue, &j.Payload, &visAt, &creAt, &j.Attempts); err != nil {
+			return nil, err
+		}
+		j.VisibleAt = time.UnixMilli(visAt)
+		j.CreatedAt = time.UnixMilli(creAt)
+		jobs = append(jobs, &j)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if jobs == nil {
+		jobs = []*Job{}
+	}
+	return jobs, nil
+}
+
+// RunBatch polls in batches and processes jobs with bounded concurrency.
+// It blocks until ctx is cancelled, draining in-flight handlers before
+// returning.
+func (q *Q) RunBatch(ctx context.Context, batchSize, maxConcurrency int, handler Handler) {
+	log := q.opts.Logger
+	log.Info("vtq: batch consumer started",
+		"queue", q.opts.Queue,
+		"batch_size", batchSize,
+		"max_concurrency", maxConcurrency,
+		"visibility", q.opts.Visibility,
+		"poll", q.opts.PollInterval,
+	)
+
+	sem := make(chan struct{}, maxConcurrency)
+	var wg sync.WaitGroup
+
+	ticker := time.NewTicker(q.opts.PollInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Info("vtq: batch consumer stopping, draining in-flight handlers", "queue", q.opts.Queue)
+			wg.Wait()
+			log.Info("vtq: batch consumer stopped", "queue", q.opts.Queue)
+			return
+		case <-ticker.C:
+			jobs, err := q.BatchClaim(ctx, batchSize)
+			if err != nil {
+				if ctx.Err() != nil {
+					wg.Wait()
+					return
+				}
+				log.Warn("vtq: batch claim failed", "error", err, "queue", q.opts.Queue)
+				continue
+			}
+
+			for _, job := range jobs {
+				// Discard if max attempts exceeded.
+				if q.opts.MaxAttempts > 0 && job.Attempts > q.opts.MaxAttempts {
+					log.Warn("vtq: job exceeded max attempts, discarding",
+						"id", job.ID, "attempts", job.Attempts, "queue", q.opts.Queue)
+					_ = q.Ack(ctx, job.ID)
+					continue
+				}
+
+				// Acquire semaphore slot (or bail on context cancel).
+				select {
+				case sem <- struct{}{}:
+				case <-ctx.Done():
+					_ = q.Nack(ctx, job.ID)
+					wg.Wait()
+					return
+				}
+
+				wg.Add(1)
+				go func(j *Job) {
+					defer wg.Done()
+					defer func() { <-sem }()
+
+					if err := handler(ctx, j); err != nil {
+						log.Warn("vtq: handler failed, nacking", "id", j.ID, "error", err, "queue", q.opts.Queue)
+						_ = q.Nack(context.Background(), j.ID)
+					} else {
+						_ = q.Ack(context.Background(), j.ID)
+					}
+				}(job)
+			}
 		}
 	}
 }

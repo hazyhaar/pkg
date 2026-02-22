@@ -2,7 +2,8 @@ package channels
 
 import (
 	"database/sql"
-	"fmt"
+
+	"github.com/hazyhaar/pkg/dbopen"
 )
 
 // Schema defines the channels table that drives the bidirectional connector
@@ -56,8 +57,7 @@ END;
 // Use this instead of sql.Open for any database that will be shared between
 // Admin writes, Dispatcher.Reload reads, and Watch polling.
 func OpenDB(path string) (*sql.DB, error) {
-	dsn := fmt.Sprintf("file:%s?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)", path)
-	return sql.Open("sqlite", dsn)
+	return dbopen.Open(path, dbopen.WithBusyTimeout(5000))
 }
 
 // Init creates the channels table if it doesn't exist.
