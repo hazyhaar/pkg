@@ -203,10 +203,14 @@ func TestRegisterHandler_Duplicate(t *testing.T) {
 }
 
 func TestForgotPasswordHandler_Success(t *testing.T) {
+	var gotOrigin string
 	bo := mockBO(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/internal/auth/forgot-password" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
+		var body map[string]string
+		json.NewDecoder(r.Body).Decode(&body)
+		gotOrigin = body["origin"]
 		json.NewEncoder(w).Encode(map[string]any{
 			"ok":    true,
 			"flash": "Email envoyé",
@@ -223,7 +227,7 @@ func TestForgotPasswordHandler_Success(t *testing.T) {
 	handler := proxy.ForgotPasswordHandler(setFlash)
 
 	form := url.Values{"email": {"alice@test.com"}}
-	req := httptest.NewRequest("POST", "/forgot-password", strings.NewReader(form.Encode()))
+	req := httptest.NewRequest("POST", "http://fo.example.com/forgot-password", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
 
@@ -239,6 +243,9 @@ func TestForgotPasswordHandler_Success(t *testing.T) {
 	}
 	if flashMsg != "Email envoyé" {
 		t.Errorf("expected flash 'Email envoyé', got %q", flashMsg)
+	}
+	if gotOrigin != "http://fo.example.com" {
+		t.Errorf("expected origin 'http://fo.example.com', got %q", gotOrigin)
 	}
 }
 
@@ -328,6 +335,57 @@ func TestResetPasswordHandler_Mismatch(t *testing.T) {
 	loc := resp.Header.Get("Location")
 	if !strings.HasPrefix(loc, "/reset-password?token=") {
 		t.Errorf("expected redirect to /reset-password with token, got %q", loc)
+	}
+}
+
+func TestRequestOrigin(t *testing.T) {
+	tests := []struct {
+		name   string
+		url    string
+		proto  string // X-Forwarded-Proto
+		fwdH   string // X-Forwarded-Host
+		expect string
+	}{
+		{
+			name:   "plain HTTP",
+			url:    "http://fo.example.com/forgot-password",
+			expect: "http://fo.example.com",
+		},
+		{
+			name:   "X-Forwarded-Proto HTTPS",
+			url:    "http://fo.example.com/forgot-password",
+			proto:  "https",
+			expect: "https://fo.example.com",
+		},
+		{
+			name:   "X-Forwarded-Host",
+			url:    "http://internal:8080/forgot-password",
+			fwdH:   "public.example.com",
+			expect: "http://public.example.com",
+		},
+		{
+			name:   "both forwarded headers",
+			url:    "http://internal:8080/forgot-password",
+			proto:  "https",
+			fwdH:   "public.example.com",
+			expect: "https://public.example.com",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest("POST", tt.url, nil)
+			if tt.proto != "" {
+				req.Header.Set("X-Forwarded-Proto", tt.proto)
+			}
+			if tt.fwdH != "" {
+				req.Header.Set("X-Forwarded-Host", tt.fwdH)
+			}
+			got := requestOrigin(req)
+			if got != tt.expect {
+				t.Errorf("requestOrigin() = %q, want %q", got, tt.expect)
+			}
+		})
 	}
 }
 
