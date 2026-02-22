@@ -15,6 +15,16 @@ import (
 // prevent memory exhaustion from unbounded result sets.
 const maxQueryRows = 10_000
 
+// isReadOnlySQL checks whether a SQL statement appears to be read-only.
+// Used to enforce Mode="readonly" on sql_query tools.
+func isReadOnlySQL(query string) bool {
+	q := strings.TrimSpace(strings.ToUpper(query))
+	return strings.HasPrefix(q, "SELECT") ||
+		strings.HasPrefix(q, "WITH") ||
+		strings.HasPrefix(q, "EXPLAIN") ||
+		strings.HasPrefix(q, "PRAGMA")
+}
+
 // SQLQueryHandler executes a SELECT and returns results as JSON.
 type SQLQueryHandler struct{ DB *sql.DB }
 
@@ -22,6 +32,9 @@ func (h *SQLQueryHandler) Execute(ctx context.Context, tool *DynamicTool, params
 	query, ok := tool.HandlerConfig["query"].(string)
 	if !ok {
 		return "", fmt.Errorf("handler_config missing 'query'")
+	}
+	if tool.Mode == ModeReadonly && !isReadOnlySQL(query) {
+		return "", fmt.Errorf("tool %q is readonly: write queries not allowed", tool.Name)
 	}
 	paramsConfig, _ := tool.HandlerConfig["params"].([]any)
 	resultFormat, _ := tool.HandlerConfig["result_format"].(string)

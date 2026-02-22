@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/hazyhaar/pkg/idgen"
@@ -20,6 +21,7 @@ CREATE TABLE IF NOT EXISTS mcp_tools_registry (
 	input_schema TEXT NOT NULL,
 	handler_type TEXT NOT NULL CHECK(handler_type IN ('sql_query', 'sql_script', 'go_function')),
 	handler_config TEXT NOT NULL,
+	mode TEXT NOT NULL DEFAULT 'readwrite' CHECK(mode IN ('readonly', 'readwrite')),
 	is_active INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0, 1)),
 	created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
 	updated_at INTEGER,
@@ -36,6 +38,7 @@ CREATE TABLE IF NOT EXISTS mcp_tools_history (
 	input_schema TEXT NOT NULL,
 	handler_type TEXT NOT NULL,
 	handler_config TEXT NOT NULL,
+	mode TEXT NOT NULL DEFAULT 'readwrite',
 	version INTEGER NOT NULL,
 	changed_by TEXT,
 	changed_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
@@ -43,11 +46,35 @@ CREATE TABLE IF NOT EXISTS mcp_tools_history (
 );
 CREATE INDEX IF NOT EXISTS idx_mcp_history_tool ON mcp_tools_history(tool_name, version DESC);
 
-CREATE TRIGGER IF NOT EXISTS trg_mcp_tools_updated_at
+CREATE TABLE IF NOT EXISTS mcp_tool_policy (
+	policy_id INTEGER PRIMARY KEY AUTOINCREMENT,
+	tool_name TEXT NOT NULL,
+	role TEXT NOT NULL DEFAULT '*',
+	effect TEXT NOT NULL DEFAULT 'allow' CHECK(effect IN ('allow', 'deny')),
+	created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+);
+CREATE INDEX IF NOT EXISTS idx_mcp_policy_tool ON mcp_tool_policy(tool_name, role);
+
+-- Consolidated trigger: auto-increment version, set updated_at, snapshot to history.
+-- Relies on recursive_triggers = OFF (SQLite default) to avoid re-triggering.
+DROP TRIGGER IF EXISTS trg_mcp_tools_updated_at;
+CREATE TRIGGER trg_mcp_tools_updated_at
 AFTER UPDATE ON mcp_tools_registry
 FOR EACH ROW
 BEGIN
-	UPDATE mcp_tools_registry SET updated_at = strftime('%s', 'now') WHERE tool_name = NEW.tool_name;
+	UPDATE mcp_tools_registry SET updated_at = strftime('%s', 'now'), version = OLD.version + 1 WHERE tool_name = NEW.tool_name;
+	INSERT INTO mcp_tools_history (tool_name, tool_category, description, input_schema, handler_type, handler_config, mode, version)
+	VALUES (NEW.tool_name, NEW.tool_category, NEW.description, NEW.input_schema, NEW.handler_type, NEW.handler_config, NEW.mode, OLD.version + 1);
+END;
+
+-- Snapshot initial version on insert.
+DROP TRIGGER IF EXISTS trg_mcp_tools_insert_history;
+CREATE TRIGGER trg_mcp_tools_insert_history
+AFTER INSERT ON mcp_tools_registry
+FOR EACH ROW
+BEGIN
+	INSERT INTO mcp_tools_history (tool_name, tool_category, description, input_schema, handler_type, handler_config, mode, version, changed_by, change_reason)
+	VALUES (NEW.tool_name, NEW.tool_category, NEW.description, NEW.input_schema, NEW.handler_type, NEW.handler_config, NEW.mode, NEW.version, NEW.created_by, 'created');
 END;
 `
 
@@ -79,10 +106,29 @@ func (r *Registry) RegisterGoFunc(name string, fn GoFunc) {
 	r.goFuncs[name] = fn
 }
 
-// Init creates the registry tables.
+// Init creates the registry tables and applies migrations for existing databases.
 func (r *Registry) Init() error {
-	_, err := r.db.Exec(Schema)
-	return err
+	if _, err := r.db.Exec(Schema); err != nil {
+		return err
+	}
+	return r.migrate()
+}
+
+// migrate adds columns introduced after initial release.
+// Idempotent: ignores "duplicate column" errors from ALTER TABLE.
+func (r *Registry) migrate() error {
+	alters := []string{
+		`ALTER TABLE mcp_tools_registry ADD COLUMN mode TEXT NOT NULL DEFAULT 'readwrite'`,
+		`ALTER TABLE mcp_tools_history ADD COLUMN mode TEXT NOT NULL DEFAULT 'readwrite'`,
+	}
+	for _, stmt := range alters {
+		if _, err := r.db.Exec(stmt); err != nil {
+			if !strings.Contains(err.Error(), "duplicate column") {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // LoadTools loads all active tools from the mcp_tools_registry table.
@@ -92,7 +138,7 @@ func (r *Registry) LoadTools(ctx context.Context) error {
 
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT tool_name, tool_category, description, input_schema,
-		       handler_type, handler_config, version, is_active
+		       handler_type, handler_config, mode, version, is_active
 		FROM mcp_tools_registry
 		WHERE is_active = 1
 		ORDER BY tool_category, tool_name`)
@@ -106,8 +152,11 @@ func (r *Registry) LoadTools(ctx context.Context) error {
 		var t DynamicTool
 		var schemaJSON, configJSON string
 		if err := rows.Scan(&t.Name, &t.Category, &t.Description,
-			&schemaJSON, &t.HandlerType, &configJSON, &t.Version, &t.IsActive); err != nil {
+			&schemaJSON, &t.HandlerType, &configJSON, &t.Mode, &t.Version, &t.IsActive); err != nil {
 			return fmt.Errorf("scan tool: %w", err)
+		}
+		if t.Mode == "" {
+			t.Mode = ModeReadWrite
 		}
 		if err := json.Unmarshal([]byte(schemaJSON), &t.InputSchema); err != nil {
 			slog.Warn("bad input_schema, skipping", "tool", t.Name, "error", err)
@@ -158,6 +207,11 @@ func (r *Registry) ExecuteTool(ctx context.Context, toolName string, params map[
 				return "", fmt.Errorf("missing required param: %s", name)
 			}
 		}
+	}
+
+	// Readonly enforcement: sql_script is inherently a write handler.
+	if t.Mode == ModeReadonly && t.HandlerType == HandlerSQLScript {
+		return "", fmt.Errorf("tool %q is readonly: sql_script handler not allowed", toolName)
 	}
 
 	switch t.HandlerType {
