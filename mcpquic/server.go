@@ -75,8 +75,10 @@ func (h *Handler) ServeConn(ctx context.Context, conn *quic.Conn) {
 	sessionID := "quic_" + h.newID()
 	h.logger.Info("MCP session starting", "session", sessionID, "remote", remote)
 
-	// Create a QUIC transport using the SDK's IOTransport wired to the stream.
+	// Enrich context with session identity for policy and audit.
 	ctx = kit.WithTransport(ctx, "mcp_quic")
+	ctx = kit.WithSessionID(ctx, sessionID)
+	ctx = kit.WithRemoteAddr(ctx, remote)
 	transport := &quicServerTransport{
 		stream:    stream,
 		sessionID: sessionID,

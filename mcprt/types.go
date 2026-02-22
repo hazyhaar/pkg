@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"sync"
+	"time"
 
 	"github.com/hazyhaar/pkg/idgen"
 	"github.com/hazyhaar/pkg/watch"
@@ -17,9 +18,16 @@ type DynamicTool struct {
 	InputSchema   map[string]any
 	HandlerType   string
 	HandlerConfig map[string]any
+	Mode          string // "readonly" or "readwrite"
 	Version       int
 	IsActive      bool
 }
+
+// ModeReadonly and ModeReadWrite are the valid values for DynamicTool.Mode.
+const (
+	ModeReadonly  = "readonly"
+	ModeReadWrite = "readwrite"
+)
 
 // ToolHandler executes a dynamic tool with the given parameters.
 type ToolHandler interface {
@@ -40,7 +48,15 @@ type Registry struct {
 }
 
 const (
-	HandlerSQLQuery    = "sql_query"
-	HandlerSQLScript   = "sql_script"
-	HandlerGoFunction  = "go_function"
+	HandlerSQLQuery   = "sql_query"
+	HandlerSQLScript  = "sql_script"
+	HandlerGoFunction = "go_function"
 )
+
+// PolicyFunc decides whether a tool call is allowed.
+// Return nil to allow, non-nil error to deny.
+type PolicyFunc func(ctx context.Context, toolName string) error
+
+// AuditFunc records a tool execution for observability.
+// toolVersion captures which version of the tool definition ran.
+type AuditFunc func(ctx context.Context, toolName string, toolVersion int, params map[string]any, result string, err error, duration time.Duration)

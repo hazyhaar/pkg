@@ -5,9 +5,28 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
+
+// BridgeOption configures Bridge behavior.
+type BridgeOption func(*bridgeConfig)
+
+type bridgeConfig struct {
+	policy PolicyFunc
+	audit  AuditFunc
+}
+
+// WithPolicy adds a policy check before each tool execution.
+func WithPolicy(fn PolicyFunc) BridgeOption {
+	return func(c *bridgeConfig) { c.policy = fn }
+}
+
+// WithAudit adds an audit hook called after each tool execution.
+func WithAudit(fn AuditFunc) BridgeOption {
+	return func(c *bridgeConfig) { c.audit = fn }
+}
 
 // Bridge registers all dynamic tools from the registry into an MCP server.
 //
@@ -18,13 +37,17 @@ import (
 // with "type":"object" or the SDK may reject it.
 // Returning a non-nil error from the handler = JSON-RPC protocol error.
 // For tool errors, use result.SetError(err) and return (result, nil).
-func Bridge(srv *mcp.Server, reg *Registry) {
+func Bridge(srv *mcp.Server, reg *Registry, opts ...BridgeOption) {
+	var cfg bridgeConfig
+	for _, o := range opts {
+		o(&cfg)
+	}
 	for _, t := range reg.ListTools() {
-		registerDynamicTool(srv, reg, t)
+		registerDynamicTool(srv, reg, t, &cfg)
 	}
 }
 
-func registerDynamicTool(srv *mcp.Server, reg *Registry, t *DynamicTool) {
+func registerDynamicTool(srv *mcp.Server, reg *Registry, t *DynamicTool, cfg *bridgeConfig) {
 	tool := &mcp.Tool{
 		Name:        t.Name,
 		Description: t.Description,
@@ -32,7 +55,17 @@ func registerDynamicTool(srv *mcp.Server, reg *Registry, t *DynamicTool) {
 	}
 
 	toolName := t.Name
+	toolVersion := t.Version
 	srv.AddTool(tool, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// Policy check — before parsing arguments.
+		if cfg.policy != nil {
+			if err := cfg.policy(ctx, toolName); err != nil {
+				var res mcp.CallToolResult
+				res.SetError(err)
+				return &res, nil
+			}
+		}
+
 		var params map[string]any
 		if req.Params.Arguments != nil {
 			if err := json.Unmarshal(req.Params.Arguments, &params); err != nil {
@@ -42,10 +75,18 @@ func registerDynamicTool(srv *mcp.Server, reg *Registry, t *DynamicTool) {
 			}
 		}
 
-		result, err := reg.ExecuteTool(ctx, toolName, params)
-		if err != nil {
+		start := time.Now()
+		result, execErr := reg.ExecuteTool(ctx, toolName, params)
+		duration := time.Since(start)
+
+		// Audit hook — always called, even on error.
+		if cfg.audit != nil {
+			cfg.audit(ctx, toolName, toolVersion, params, result, execErr, duration)
+		}
+
+		if execErr != nil {
 			var res mcp.CallToolResult
-			res.SetError(errors.New(fmt.Sprintf("%s: %v", toolName, err)))
+			res.SetError(errors.New(fmt.Sprintf("%s: %v", toolName, execErr)))
 			return &res, nil
 		}
 		return &mcp.CallToolResult{
