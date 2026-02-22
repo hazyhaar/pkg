@@ -201,3 +201,159 @@ func TestRegisterHandler_Duplicate(t *testing.T) {
 		t.Errorf("expected 'user already exists' flash, got %q", flashMsg)
 	}
 }
+
+func TestForgotPasswordHandler_Success(t *testing.T) {
+	bo := mockBO(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/internal/auth/forgot-password" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		json.NewEncoder(w).Encode(map[string]any{
+			"ok":    true,
+			"flash": "Email envoyé",
+		})
+	})
+	defer bo.Close()
+
+	var flashMsg string
+	setFlash := func(w http.ResponseWriter, kind, msg string) {
+		flashMsg = msg
+	}
+
+	proxy := NewAuthProxy(bo.URL, "", false)
+	handler := proxy.ForgotPasswordHandler(setFlash)
+
+	form := url.Values{"email": {"alice@test.com"}}
+	req := httptest.NewRequest("POST", "/forgot-password", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	resp := w.Result()
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Errorf("expected 303, got %d", resp.StatusCode)
+	}
+	loc := resp.Header.Get("Location")
+	if loc != "/login" {
+		t.Errorf("expected redirect to /login, got %q", loc)
+	}
+	if flashMsg != "Email envoyé" {
+		t.Errorf("expected flash 'Email envoyé', got %q", flashMsg)
+	}
+}
+
+func TestForgotPasswordHandler_NeverExposesBO(t *testing.T) {
+	bo := mockBO(t, func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	})
+	defer bo.Close()
+
+	proxy := NewAuthProxy(bo.URL, "", false)
+	handler := proxy.ForgotPasswordHandler(setFlashNoop)
+
+	form := url.Values{"email": {"alice@test.com"}}
+	req := httptest.NewRequest("POST", "/forgot-password", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	resp := w.Result()
+	loc := resp.Header.Get("Location")
+	if strings.Contains(loc, bo.URL) {
+		t.Errorf("redirect URL leaks BO address: %q", loc)
+	}
+}
+
+func TestResetPasswordHandler_Success(t *testing.T) {
+	bo := mockBO(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/internal/auth/reset-password" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		json.NewEncoder(w).Encode(map[string]any{
+			"ok":    true,
+			"flash": "Mot de passe réinitialisé",
+		})
+	})
+	defer bo.Close()
+
+	var flashMsg string
+	setFlash := func(w http.ResponseWriter, kind, msg string) {
+		flashMsg = msg
+	}
+
+	proxy := NewAuthProxy(bo.URL, "", false)
+	handler := proxy.ResetPasswordHandler(setFlash)
+
+	form := url.Values{
+		"token":            {"reset-token-123"},
+		"password":         {"newpass"},
+		"password_confirm": {"newpass"},
+	}
+	req := httptest.NewRequest("POST", "/reset-password", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	resp := w.Result()
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Errorf("expected 303, got %d", resp.StatusCode)
+	}
+	loc := resp.Header.Get("Location")
+	if loc != "/login" {
+		t.Errorf("expected redirect to /login, got %q", loc)
+	}
+	if flashMsg != "Mot de passe réinitialisé" {
+		t.Errorf("expected flash, got %q", flashMsg)
+	}
+}
+
+func TestResetPasswordHandler_Mismatch(t *testing.T) {
+	proxy := NewAuthProxy("http://unused", "", false)
+	handler := proxy.ResetPasswordHandler(setFlashNoop)
+
+	form := url.Values{
+		"token":            {"tok"},
+		"password":         {"aaa"},
+		"password_confirm": {"bbb"},
+	}
+	req := httptest.NewRequest("POST", "/reset-password", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	resp := w.Result()
+	loc := resp.Header.Get("Location")
+	if !strings.HasPrefix(loc, "/reset-password?token=") {
+		t.Errorf("expected redirect to /reset-password with token, got %q", loc)
+	}
+}
+
+func TestResetPasswordHandler_NeverExposesBO(t *testing.T) {
+	bo := mockBO(t, func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	})
+	defer bo.Close()
+
+	proxy := NewAuthProxy(bo.URL, "", false)
+	handler := proxy.ResetPasswordHandler(setFlashNoop)
+
+	form := url.Values{
+		"token":            {"tok"},
+		"password":         {"pass"},
+		"password_confirm": {"pass"},
+	}
+	req := httptest.NewRequest("POST", "/reset-password", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	resp := w.Result()
+	loc := resp.Header.Get("Location")
+	if strings.Contains(loc, bo.URL) {
+		t.Errorf("redirect URL leaks BO address: %q", loc)
+	}
+}
