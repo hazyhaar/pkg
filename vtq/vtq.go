@@ -19,8 +19,8 @@
 //	    id          TEXT PRIMARY KEY,
 //	    queue       TEXT NOT NULL DEFAULT '',
 //	    payload     BLOB,
-//	    visible_at  INTEGER NOT NULL DEFAULT 0,
-//	    created_at  INTEGER NOT NULL,
+//	    visible_at  INTEGER NOT NULL DEFAULT 0,  -- milliseconds since epoch
+//	    created_at  INTEGER NOT NULL,             -- milliseconds since epoch
 //	    attempts    INTEGER NOT NULL DEFAULT 0
 //	);
 //	CREATE INDEX IF NOT EXISTS idx_vtq_visible ON vtq_jobs (queue, visible_at);
