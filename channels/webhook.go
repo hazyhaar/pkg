@@ -252,7 +252,8 @@ func (c *webhookChannel) Send(ctx context.Context, msg Message) error {
 		req.Header.Set("X-Signature-256", "sha256="+hex.EncodeToString(mac.Sum(nil)))
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
 	if err != nil {
 		return &ErrSendFailed{Channel: c.name, Platform: "webhook",
 			Cause: fmt.Errorf("callback POST: %w", err)}

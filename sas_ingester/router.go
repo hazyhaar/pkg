@@ -7,7 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"time"
 )
@@ -145,13 +145,13 @@ func (rt *Router) Deliver(route *RoutePending, piece *Piece) bool {
 		})
 	}
 	if err != nil {
-		log.Printf("[router] marshal payload: %v", err)
+		slog.Error("marshal payload", "component", "router", "error", err)
 		return false
 	}
 
 	req, err := http.NewRequest("POST", route.Target, bytes.NewReader(body))
 	if err != nil {
-		log.Printf("[router] create request: %v", err)
+		slog.Error("create request", "component", "router", "error", err)
 		return false
 	}
 	req.Header.Set("Content-Type", "application/json")
@@ -183,7 +183,7 @@ func (rt *Router) Deliver(route *RoutePending, piece *Piece) bool {
 		}
 		// Safety check: ensure no Authorization header leaked.
 		if req.Header.Get("Authorization") != "" {
-			log.Printf("[router] ALERT: opaque_only route %s has Authorization header — removing", route.Target)
+			slog.Warn("opaque_only route has Authorization header — removing", "component", "router", "target", route.Target)
 			req.Header.Del("Authorization")
 		}
 	}
@@ -197,7 +197,7 @@ func (rt *Router) Deliver(route *RoutePending, piece *Piece) bool {
 
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		if err := rt.store.DeleteRoute(route.PieceSHA256, route.DossierID, route.Target); err != nil {
-			log.Printf("[router] delete route: %v", err)
+			slog.Error("delete route", "component", "router", "error", err)
 		}
 		return true
 	}
@@ -238,7 +238,7 @@ func (rt *Router) recordFailure(route *RoutePending, errMsg string) {
 		route.PieceSHA256, route.DossierID, route.Target,
 		attempts, errMsg, nextRetry,
 	); err != nil {
-		log.Printf("[router] record failure: %v", err)
+		slog.Error("record failure", "component", "router", "error", err)
 	}
 }
 
@@ -247,7 +247,7 @@ func (rt *Router) ProcessRetries() {
 	now := time.Now().UTC().Format(time.RFC3339)
 	routes, err := rt.store.ListRetryableRoutes(now)
 	if err != nil {
-		log.Printf("[router] list retryable: %v", err)
+		slog.Error("list retryable routes", "component", "router", "error", err)
 		return
 	}
 

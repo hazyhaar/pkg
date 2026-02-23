@@ -5,7 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
+	"os"
 	"time"
 
 	"github.com/hazyhaar/pkg/connectivity"
@@ -16,12 +17,14 @@ func Example() {
 	// 1. Open an in-memory SQLite database for the routes table.
 	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
-		log.Fatal(err)
+		slog.Error("open db", "error", err)
+		os.Exit(1)
 	}
 	defer db.Close()
 
 	if err := connectivity.Init(db); err != nil {
-		log.Fatal(err)
+		slog.Error("init connectivity", "error", err)
+		os.Exit(1)
 	}
 
 	// 2. Create router and register a local handler.
@@ -40,13 +43,15 @@ func Example() {
 
 	// 5. Load routes.
 	if err := router.Reload(context.Background(), db); err != nil {
-		log.Fatal(err)
+		slog.Error("reload routes", "error", err)
+		os.Exit(1)
 	}
 
 	// 6. Call the service — routed locally.
 	resp, err := router.Call(context.Background(), "billing", []byte("$100"))
 	if err != nil {
-		log.Fatal(err)
+		slog.Error("call billing", "error", err)
+		os.Exit(1)
 	}
 	fmt.Println(string(resp))
 
@@ -56,7 +61,8 @@ func Example() {
 
 	resp, err = router.Call(context.Background(), "billing", []byte("$200"))
 	if err != nil {
-		log.Fatal(err)
+		slog.Error("call billing noop", "error", err)
+		os.Exit(1)
 	}
 	fmt.Println(resp == nil)
 
@@ -82,7 +88,8 @@ func Example_middleware() {
 
 	resp, err := wrapped(context.Background(), []byte("hello"))
 	if err != nil {
-		log.Fatal(err)
+		slog.Error("call wrapped handler", "error", err)
+		os.Exit(1)
 	}
 	fmt.Println(string(resp))
 	// Output:
@@ -118,7 +125,8 @@ func Example_httpFactory() {
 
 	handler, closeFn, err := f("https://api.example.com/v1", cfg)
 	if err != nil {
-		log.Fatal(err)
+		slog.Error("create http factory", "error", err)
+		os.Exit(1)
 	}
 	defer closeFn()
 

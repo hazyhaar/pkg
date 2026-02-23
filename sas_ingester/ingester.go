@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"path/filepath"
 	"time"
 
@@ -72,18 +72,18 @@ func (ing *Ingester) RecoverStalePieces() {
 	for _, state := range []string{"received", "scanned"} {
 		pieces, err := ing.Store.ListPiecesByState(state)
 		if err != nil {
-			log.Printf("[recovery] list %s pieces: %v", state, err)
+			slog.Error("list stale pieces", "component", "recovery", "state", state, "error", err)
 			continue
 		}
 		for _, p := range pieces {
-			log.Printf("[recovery] re-queuing stale piece sha256=%s dossier=%s state=%s", p.SHA256, p.DossierID, p.State)
+			slog.Info("re-queuing stale piece", "component", "recovery", "sha256", p.SHA256, "dossier_id", p.DossierID, "state", p.State)
 			// Mark as received so the pipeline can retry from the appropriate step.
 			if err := ing.Store.UpdatePieceState(p.SHA256, p.DossierID, "received"); err != nil {
-				log.Printf("[recovery] update piece: %v", err)
+				slog.Error("update piece state", "component", "recovery", "error", err)
 			}
 		}
 		if len(pieces) > 0 {
-			log.Printf("[recovery] re-queued %d pieces from state %q", len(pieces), state)
+			slog.Info("re-queued stale pieces", "component", "recovery", "count", len(pieces), "state", state)
 		}
 	}
 }
@@ -223,14 +223,14 @@ func (ing *Ingester) processPipeline(upload *UploadResult, dossierID, originalTo
 	// Step 2: metadata extraction across all chunks (header + trailer + entropy).
 	meta, err := ExtractFullMetadata(chunkDir, upload.ChunkCount)
 	if err != nil {
-		log.Printf("[ingester] metadata warning: %v", err)
+		slog.Warn("metadata extraction", "component", "ingester", "error", err)
 	}
 
 	// Step 3: security scan on first + last chunks (+ ClamAV on all).
 	scanStart := time.Now()
 	scanResult, err := ScanChunks(chunkDir, upload.ChunkCount, ing.Config)
 	if err != nil {
-		log.Printf("[ingester] scan warning: %v", err)
+		slog.Warn("security scan", "component", "ingester", "error", err)
 		scanResult = &ScanResult{ClamAV: "error"}
 	}
 	ing.recordMetric("scan_duration_ms", float64(time.Since(scanStart).Milliseconds()), "milliseconds")
@@ -238,7 +238,7 @@ func (ing *Ingester) processPipeline(upload *UploadResult, dossierID, originalTo
 
 	if scanResult.Blocked {
 		if err := ing.Store.UpdatePieceState(upload.SHA256, dossierID, "blocked"); err != nil {
-			log.Printf("[ingester] update state: %v", err)
+			slog.Error("update piece state", "component", "ingester", "error", err)
 		}
 		result.State = "blocked"
 		// Post-cutoff: no ownerSub in logs, only opaque dossierID.
@@ -289,7 +289,7 @@ func (ing *Ingester) processPipeline(upload *UploadResult, dossierID, originalTo
 	piece, _ := ing.Store.GetPiece(upload.SHA256, dossierID)
 	if piece != nil && finalState == "ready" {
 		if err := ing.Router.EnqueueRoutesWithToken(piece, originalToken); err != nil {
-			log.Printf("[ingester] enqueue routes: %v", err)
+			slog.Error("enqueue routes", "component", "ingester", "error", err)
 		}
 	}
 

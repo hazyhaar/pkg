@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -27,22 +27,26 @@ func main() {
 
 	cfg, err := sas_ingester.LoadConfig(cfgPath)
 	if err != nil {
-		log.Fatalf("config: %v", err)
+		slog.Error("config", "error", err)
+		os.Exit(1)
 	}
 
 	if err := os.MkdirAll(cfg.ChunksDir, 0755); err != nil {
-		log.Fatalf("create chunks dir: %v", err)
+		slog.Error("create chunks dir", "error", err)
+		os.Exit(1)
 	}
 
 	// --- Trace store (separate DB to avoid write contention, raw "sqlite" to avoid recursion) ---
 	traceDBPath := filepath.Join(filepath.Dir(cfg.DBPath), "sas_traces.db")
 	traceDB, err := sql.Open("sqlite", traceDBPath+"?_journal_mode=WAL&_busy_timeout=5000")
 	if err != nil {
-		log.Fatalf("trace db: %v", err)
+		slog.Error("trace db", "error", err)
+		os.Exit(1)
 	}
 	traceStore := trace.NewStore(traceDB)
 	if err := traceStore.Init(); err != nil {
-		log.Fatalf("trace init: %v", err)
+		slog.Error("trace init", "error", err)
+		os.Exit(1)
 	}
 	trace.SetStore(traceStore)
 	defer traceStore.Close()
@@ -52,11 +56,13 @@ func main() {
 	obsDBPath := filepath.Join(filepath.Dir(cfg.DBPath), "observability.db")
 	obsDB, err := sql.Open("sqlite", obsDBPath+"?_journal_mode=WAL&_busy_timeout=5000")
 	if err != nil {
-		log.Fatalf("observability db: %v", err)
+		slog.Error("observability db", "error", err)
+		os.Exit(1)
 	}
 	defer obsDB.Close()
 	if err := observability.Init(obsDB); err != nil {
-		log.Fatalf("observability schema: %v", err)
+		slog.Error("observability schema", "error", err)
+		os.Exit(1)
 	}
 
 	// --- Observability components ---
@@ -85,7 +91,8 @@ func main() {
 		sas_ingester.WithEvents(events),
 	)
 	if err != nil {
-		log.Fatalf("init ingester: %v", err)
+		slog.Error("init ingester", "error", err)
+		os.Exit(1)
 	}
 	defer ing.Close()
 
@@ -107,9 +114,10 @@ func main() {
 	mux.Handle("/v1/dossiers/", contextMiddleware(requestIDGen, dossierHandler(ing)))
 	mux.HandleFunc("/v1/health", healthHandler(ing, obsDB))
 
-	log.Printf("sas_ingester listening on %s", cfg.Listen)
+	slog.Info("sas_ingester listening", "addr", cfg.Listen)
 	if err := http.ListenAndServe(cfg.Listen, mux); err != nil {
-		log.Fatalf("serve: %v", err)
+		slog.Error("serve", "error", err)
+		os.Exit(1)
 	}
 }
 
@@ -169,7 +177,7 @@ func uploadHandler(ing *sas_ingester.Ingester) http.HandlerFunc {
 		originalToken := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 		result, err := ing.IngestWithToken(file, dossierID, claims.Sub, originalToken)
 		if err != nil {
-			log.Printf("[upload] req=%s error: %v", kit.GetRequestID(r.Context()), err)
+			slog.Error("upload failed", "component", "upload", "request_id", kit.GetRequestID(r.Context()), "error", err)
 			http.Error(w, fmt.Sprintf("ingest: %v", err), http.StatusInternalServerError)
 			return
 		}
@@ -243,7 +251,7 @@ func dossierHandler(ing *sas_ingester.Ingester) http.HandlerFunc {
 			// Remove chunk blobs from disk.
 			blobDir := filepath.Join(ing.Config.ChunksDir, id)
 			if err := os.RemoveAll(blobDir); err != nil {
-				log.Printf("[dossier] cleanup blobs %s: %v", id, err)
+				slog.Warn("cleanup blobs failed", "component", "dossier", "dossier_id", id, "error", err)
 			}
 			w.WriteHeader(http.StatusNoContent)
 
@@ -414,7 +422,7 @@ func tusPatchHandler(tus *sas_ingester.TusHandler, ing *sas_ingester.Ingester) h
 					originalToken := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 					ingestResult, err := ing.IngestFromUploadWithToken(result, u.DossierID, claims.Sub, originalToken)
 					if err != nil {
-						log.Printf("[tus] ingest error: %v", err)
+						slog.Error("tus ingest failed", "component", "tus", "error", err)
 					} else {
 						result.State = ingestResult.State
 					}
