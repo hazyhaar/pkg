@@ -7,7 +7,8 @@ limiting, request tracing, body limits, and flash messages.
 
 ```go
 // Pre-built stacks.
-foStack := shield.DefaultFOStack(db)  // headers + body limit + trace + rate limit + flash
+foStack, mm := shield.DefaultFOStack(db)  // maintenance + headers + body limit + trace + rate limit + flash
+mm.StartReloader(done)                    // poll maintenance flag every 5s
 boStack := shield.DefaultBOStack()    // headers + body limit + trace + flash (no rate limit)
 
 mux.Handle("/", foStack(handler))
@@ -17,6 +18,7 @@ mux.Handle("/", foStack(handler))
 
 | Middleware | Description |
 |------------|-------------|
+| `NewMaintenanceMode(db, excludes)` | 503 page when maintenance flag is active in SQLite |
 | `SecurityHeaders(cfg)` | CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy |
 | `MaxFormBody(maxBytes)` | Limit `application/x-www-form-urlencoded` body size |
 | `TraceID` | Generate random trace ID, set `X-Trace-ID` header, enrich context logger |
@@ -62,5 +64,6 @@ flash := shield.GetFlash(r.Context())
 | `SetFlash(w, type, msg)` | Write flash cookie |
 | `GetFlash(ctx)` | Read flash from context |
 | `HeadToGet` | HEAD → GET conversion |
-| `DefaultFOStack(db)` | FO middleware stack |
+| `NewMaintenanceMode(db, excludes)` | SQLite-backed maintenance mode |
+| `DefaultFOStack(db)` | FO middleware stack (returns stack + MaintenanceMode) |
 | `DefaultBOStack()` | BO middleware stack |
