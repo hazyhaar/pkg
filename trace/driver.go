@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql/driver"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/hazyhaar/pkg/kit"
@@ -99,6 +100,12 @@ func (s *tracingStmt) Query(args []driver.Value) (driver.Rows, error) {
 }
 
 func (s *tracingStmt) record(ctx context.Context, op string, d time.Duration, err error) {
+	// Skip PRAGMA noise (dbsync watcher polls PRAGMA data_version every 200ms).
+	// Still record if slow (>10ms) or errored — those are worth investigating.
+	if err == nil && d < 10*time.Millisecond && strings.HasPrefix(s.query, "PRAGMA ") {
+		return
+	}
+
 	traceID := kit.GetTraceID(ctx)
 
 	// 1. Structured logging via slog
@@ -123,7 +130,7 @@ func (s *tracingStmt) record(ctx context.Context, op string, d time.Duration, er
 	}
 	slog.LogAttrs(ctx, level, "SQL", attrs...)
 
-	// 2. SQLite persistence (async, non-blocking)
+	// 2. Persistence (async, non-blocking) — local Store or RemoteStore.
 	if store := getStore(); store != nil {
 		errMsg := ""
 		if err != nil {
