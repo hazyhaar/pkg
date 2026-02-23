@@ -1,73 +1,58 @@
-# CLAUDE.md — Notes pour agents travaillant sur ce repo
+# CLAUDE.md — hazyhaar/pkg
+
+## Ce que c'est
+
+Package Go partagé de l'écosystème HOROS. Bibliothèque de composants réutilisables importée par tous les services (repvow, horum, horostracker, touchstone-registry).
+
+**Module** : `github.com/hazyhaar/pkg`
+**Repo** : `github.com/hazyhaar/pkg` (privé)
+
+## Sous-packages
+
+| Package | Rôle |
+|---------|------|
+| `auth` | JWT claims, cookie management, OAuth (Google), middleware auth |
+| `authproxy` | Proxy auth FO→BO (login, register, forgot-password avec origin, reset-password) |
+| `audit` | Logger d'audit SQLite (qui a fait quoi, quand) |
+| `chassis` | Unified chassis pattern (HTTP + MCP server) |
+| `channels` | Dispatching multi-canal (Discord, Telegram, WhatsApp, webhooks) |
+| `connectivity` | Router inter-services, circuit breaker, retry, factory HTTP/MCP |
+| `dbopen` | Helper ouverture SQLite avec pragmas + retry |
+| `dbsync` | Réplication SQLite BO→FO via QUIC (publisher, subscriber, filter, snapshot) |
+| `feedback` | Widget feedback intégrable (HTML/CSS/JS + handlers) |
+| `horosafe` | Sanitization et validation input |
+| `idgen` | Génération UUID v7 |
+| `kit` | Context helpers, endpoint pattern, MCP tool registration |
+| `mcpquic` | Transport QUIC pour MCP (client + server) |
+| `mcprt` | Runtime MCP dynamique (bridge, registry, hot-reload tools) |
+| `observability` | Audit, heartbeat, metrics, schema |
+| `sas_chunker` | Chunking de fichiers pour ingestion |
+| `sas_ingester` | Ingestion SAS avec TUS upload, metadata, identity |
+| `shield` | Middleware HTTP sécurité (rate limit, headers, flash, trace ID, CSRF) |
+| `trace` | Tracing SQL (store, driver wrapper) |
+| `vtq` | Virtual Task Queue pattern |
+| `watch` | File/DB watcher (PRAGMA data_version polling) |
 
 ## Migration MCP SDK (février 2026)
 
-Le projet a migré de `mark3labs/mcp-go` (community SDK, v0.44.0) vers
-`modelcontextprotocol/go-sdk` (SDK officiel, v1.3.1).
+Le projet a migré de `mark3labs/mcp-go` vers `modelcontextprotocol/go-sdk` v1.3.1. Points critiques :
 
-### Changements architecturaux critiques
+- `ToolHandler` reçoit `*mcp.CallToolRequest` (pointeur) et arguments en `json.RawMessage` (pas `map[string]any`)
+- Retourner `error` = erreur JSON-RPC protocole. Pour erreur outil, utiliser `result.SetError(err)` et retourner `(result, nil)`
+- `InputSchema` doit avoir `"type": "object"` sinon le SDK refuse l'enregistrement
 
-**Avant (mcp-go)** : boucle manuelle read→HandleMessage→write, gestion explicite
-des sessions (RegisterSession/UnregisterSession), notifications via channel.
+Voir `CLAUDE.md` interne (section "Migration MCP SDK") pour le tableau de mapping complet.
 
-**Après (official SDK)** : le SDK possède la boucle JSON-RPC. On implémente
-`mcp.Transport` → `mcp.Connection`, puis `server.Connect(ctx, transport, nil)`
-bloque jusqu'à fin de session. Le SDK gère sessions, init handshake, et dispatch.
+## Build / Test
 
-### Mapping des types — aide au debug
+```bash
+CGO_ENABLED=0 go build ./...
+go test ./... -count=1
+```
 
-| Ancien (mcp-go)                        | Nouveau (official SDK)                         |
-|----------------------------------------|------------------------------------------------|
-| `server.MCPServer`                     | `mcp.Server`                                   |
-| `server.NewMCPServer(name, ver)`       | `mcp.NewServer(&mcp.Implementation{...}, nil)` |
-| `srv.HandleMessage(ctx, rawJSON)`      | SUPPRIMÉ — géré par le SDK via Transport       |
-| `server.RegisterSession / Unregister`  | SUPPRIMÉ — géré par `server.Connect()`         |
-| `mcp.NewToolWithRawSchema(n, d, json)` | `&mcp.Tool{Name: n, Description: d, InputSchema: json.RawMessage(raw)}` |
-| `srv.AddTool(tool, handler)`           | `srv.AddTool(tool, handler)` — signature handler changée |
-| `func(ctx, mcp.CallToolRequest)`       | `func(ctx, *mcp.CallToolRequest)` (pointeur!)  |
-| `req.GetArguments() map[string]any`    | `req.Params.Arguments json.RawMessage` (à unmarshal manuellement) |
-| `mcp.NewToolResultText(s)`             | `&mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: s}}}` |
-| `mcp.NewToolResultError(s)`            | `var r mcp.CallToolResult; r.SetError(err)`    |
-| `client.NewClient(transport)`          | `mcp.NewClient(&mcp.Implementation{...}, nil)` |
-| `client.Start(ctx) + Initialize(ctx)`  | `client.Connect(ctx, transport, nil)` (tout-en-un) |
-| `client.ListTools(ctx, req)`           | `session.ListTools(ctx, *ListToolsParams)`     |
-| `client.CallTool(ctx, req)`            | `session.CallTool(ctx, *CallToolParams)`       |
-| `transport.NewIO(r, w, closer)`        | `&mcp.IOTransport{Reader: r, Writer: w}`       |
+## Pièges connus
 
-### Pièges connus / zones de risque
-
-1. **Arguments en json.RawMessage** : l'ancien SDK décodait automatiquement les
-   arguments en `map[string]any`. Le nouveau les laisse en `json.RawMessage`.
-   Si un tool handler reçoit des arguments nil/vides et crashe, vérifier le
-   parsing dans `mcprt/bridge.go:29` et `kit/transport_mcp.go:20`.
-
-2. **ToolHandler retourne error = erreur protocole** : avec le SDK officiel,
-   retourner une `error` non-nil depuis un `ToolHandler` est une erreur
-   JSON-RPC (protocole), PAS une erreur outil. Pour les erreurs outil,
-   utiliser `result.SetError(err)` et retourner `(result, nil)`.
-
-3. **Session lifecycle** : `ServerSession.Wait()` bloque jusqu'à déconnexion.
-   Si le client QUIC se déconnecte brutalement sans fermer le stream, vérifier
-   que le timeout QUIC (`DefaultIdleTimeout`) libère bien la goroutine.
-
-4. **InputSchema doit être type "object"** : le SDK officiel valide le schema.
-   Si `mcprt/bridge.go` reçoit un DynamicTool dont l'InputSchema n'a pas
-   `"type": "object"`, le SDK peut refuser l'enregistrement.
-
-5. **`mcp.Content` est une interface** : `TextContent`, `ImageContent`,
-   `EmbeddedResource` l'implémentent. Ne jamais passer un `Content` nil dans
-   le slice — le marshaling JSON paniquera.
-
-6. **`Underlying()` supprimé** : `mcpquic.Client.Underlying()` qui retournait
-   `*client.Client` (mcp-go) a été supprimé. Non utilisé dans le codebase
-   actuel mais si un consommateur externe l'utilisait, il aura une erreur de
-   compilation.
-
-### Fichiers impactés
-
-- `mcpquic/server.go` — Transport QUIC serveur, sessionConn wrapper
-- `mcpquic/client.go` — Transport QUIC client, session lifecycle
-- `kit/transport_mcp.go` — RegisterMCPTool (signature publique changée)
-- `mcprt/bridge.go` — Bridge dynamique, raw schema, argument parsing
-- `chassis/server.go` — Type MCPServer dans Config
-- `connectivity/factory_mcp.go` — AUCUN changement (abstraction mcpquic.Client)
+- `dbsync.AuthProxy` est **deprecated** — utiliser `authproxy.NewAuthProxy` à la place
+- `authproxy.ForgotPasswordHandler` envoie `origin` (déduit de `r.Host`/`X-Forwarded-*`) — le BO doit le valider
+- `watch` utilise `PRAGMA data_version` (poll 200ms) — pas de filesystem watcher
+- Les tests `dbsync_test.go` nécessitent du temps (QUIC handshake) — `go test -timeout 60s`
