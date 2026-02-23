@@ -71,12 +71,46 @@ CREATE TABLE sql_traces (
 Indexes on `timestamp`, `trace_id` (partial, non-empty), and `duration_us`
 (partial, > 100 000 us) for slow-query analysis.
 
+## Remote tracing (FO → BO)
+
+In a FO/BO split architecture, the FO has no local SQLite for traces.
+`RemoteStore` batches entries and POSTs them over HTTPS to the BO, which
+ingests them into its local `Store`. This follows the same HTTPS pattern as
+`authproxy` and `dbsync.WriteProxy`.
+
+```
+  FO                                    BO
+  ┌──────────────┐   HTTPS POST   ┌──────────────┐
+  │ RemoteStore   │──────────────▶│ IngestHandler │
+  │ (batch 64,    │  JSON []*Entry │ (RecordAsync  │
+  │  flush 1s)    │               │  into Store)  │
+  └──────────────┘               └──────────────┘
+```
+
+**FO side:**
+
+```go
+rs := trace.NewRemoteStore("https://bo.internal/api/internal/traces", nil)
+trace.SetStore(rs)
+defer rs.Close()
+```
+
+**BO side:**
+
+```go
+mux.Handle("/api/internal/traces", trace.IngestHandler(store))
+```
+
 ## Exported API
 
 | Symbol | Description |
 |--------|-------------|
-| `Store` | Async trace writer with batching |
+| `Recorder` | Interface for trace backends (`RecordAsync` + `Close`) |
+| `Store` | Async trace writer with batching (local SQLite) |
 | `NewStore(db)` | Create store (db must use raw `"sqlite"` driver) |
+| `RemoteStore` | Async trace forwarder (HTTPS POST to BO) |
+| `NewRemoteStore(url, client)` | Create remote store (nil client = 5s default) |
+| `IngestHandler(store)` | HTTP handler for BO trace ingestion endpoint |
 | `Entry` | Single trace record |
-| `SetStore(s)` | Set / replace global store (nil disables persistence) |
+| `SetStore(s)` | Set / replace global recorder (nil disables persistence) |
 | `Schema` | DDL string for manual migration |

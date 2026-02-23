@@ -37,21 +37,29 @@ type Entry struct {
 	Timestamp  int64  // unix microseconds
 }
 
+// Recorder is the interface for trace persistence backends.
+// Store (local SQLite) and RemoteStore (HTTP POST to BO) both implement it.
+type Recorder interface {
+	RecordAsync(e *Entry)
+	Close() error
+}
+
 // global store for persistence (nil = slog-only, no SQLite persistence)
 var (
-	globalStore *Store
+	globalStore Recorder
 	storeMu     sync.RWMutex
 )
 
-// SetStore sets the global trace store for SQLite persistence.
+// SetStore sets the global trace recorder for persistence.
+// Accepts a Store (local SQLite) or RemoteStore (HTTP to BO).
 // Pass nil to disable persistence (slog-only mode).
-func SetStore(s *Store) {
+func SetStore(s Recorder) {
 	storeMu.Lock()
 	globalStore = s
 	storeMu.Unlock()
 }
 
-func getStore() *Store {
+func getStore() Recorder {
 	storeMu.RLock()
 	defer storeMu.RUnlock()
 	return globalStore
