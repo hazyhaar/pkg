@@ -6,6 +6,9 @@ limiting, request tracing, body limits, and flash messages.
 ## Quick start
 
 ```go
+// Create tables (BO only — FO receives them via dbsync).
+shield.Init(db)
+
 // Pre-built stacks.
 foStack, mm := shield.DefaultFOStack(db)  // maintenance + headers + body limit + trace + rate limit + flash
 mm.StartReloader(done)                    // poll maintenance flag every 5s
@@ -65,5 +68,7 @@ flash := shield.GetFlash(r.Context())
 | `GetFlash(ctx)` | Read flash from context |
 | `HeadToGet` | HEAD → GET conversion |
 | `NewMaintenanceMode(db, excludes)` | SQLite-backed maintenance mode |
+| `Schema` | DDL for rate_limits + maintenance tables |
+| `Init(db)` | Create shield tables (idempotent) |
 | `DefaultFOStack(db)` | FO middleware stack (returns stack + MaintenanceMode) |
 | `DefaultBOStack()` | BO middleware stack |
