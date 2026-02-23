@@ -126,12 +126,14 @@ type options struct {
 	watchDebounce time.Duration
 	compress      bool          // gzip snapshot before push
 	maxAge        time.Duration // reject snapshots older than this (0 = no limit)
+	driverName    string        // SQL driver name for opening databases (default "sqlite")
 }
 
 func defaultOptions() options {
 	return options{
 		watchInterval: 200 * time.Millisecond,
 		watchDebounce: 200 * time.Millisecond,
+		driverName:    "sqlite",
 	}
 }
 
@@ -156,4 +158,10 @@ func WithCompression() Option {
 // protecting against rollback/replay attacks.
 func WithMaxAge(d time.Duration) Option {
 	return func(o *options) { o.maxAge = d }
+}
+
+// WithDriverName sets the SQL driver name used when opening databases.
+// Defaults to "sqlite". Use "sqlite-trace" to enable SQL tracing.
+func WithDriverName(name string) Option {
+	return func(o *options) { o.driverName = name }
 }

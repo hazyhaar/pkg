@@ -54,7 +54,7 @@ func NewSubscriber(dbPath, listenAddr string, tlsCfg *tls.Config, opts ...Option
 
 	// Open initial database if it exists.
 	if _, err := os.Stat(dbPath); err == nil {
-		if db, err := openReadOnly(dbPath); err == nil {
+		if db, err := openReadOnly(o.driverName, dbPath); err == nil {
 			s.db.Store(db)
 			s.logger.Info("dbsync subscriber: loaded existing database", "path", dbPath)
 		}
@@ -201,7 +201,7 @@ func (s *Subscriber) handleSnapshot(meta SnapshotMeta, reader io.Reader) error {
 	}
 
 	// Open new database read-only.
-	newDB, err := openReadOnly(s.dbPath)
+	newDB, err := openReadOnly(s.opts.driverName, s.dbPath)
 	if err != nil {
 		return fmt.Errorf("open new db: %w", err)
 	}
@@ -222,9 +222,9 @@ func (s *Subscriber) handleSnapshot(meta SnapshotMeta, reader io.Reader) error {
 }
 
 // openReadOnly opens a SQLite database in read-only mode with safe pragmas.
-func openReadOnly(path string) (*sql.DB, error) {
+func openReadOnly(driverName, path string) (*sql.DB, error) {
 	dsn := fmt.Sprintf("file:%s?mode=ro&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)", path)
-	db, err := sql.Open("sqlite", dsn)
+	db, err := sql.Open(driverName, dsn)
 	if err != nil {
 		return nil, err
 	}
