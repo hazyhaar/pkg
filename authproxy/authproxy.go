@@ -162,6 +162,130 @@ func (p *AuthProxy) RegisterHandler(setFlash func(http.ResponseWriter, string, s
 	}
 }
 
+// ForgotPasswordHandler returns an http.HandlerFunc for POST /forgot-password on the FO.
+// It reads the form, calls BO /api/internal/auth/forgot-password, and redirects.
+// The BO URL is never exposed to the user.
+//
+// The handler forwards the FO origin (scheme + host from the incoming request)
+// to the BO as the "origin" field. The BO MUST use this origin — not its own
+// URL — when constructing the password reset link in the email. This ensures
+// the user clicks a link like https://fo.example.com/reset-password?token=xxx
+// and never sees the BO address.
+func (p *AuthProxy) ForgotPasswordHandler(setFlash func(http.ResponseWriter, string, string)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if p.HealthCheck != nil && !p.HealthCheck() {
+			setFlash(w, "error", "Service temporairement indisponible")
+			http.Redirect(w, r, "/forgot-password", http.StatusSeeOther)
+			return
+		}
+
+		if err := r.ParseForm(); err != nil {
+			setFlash(w, "error", "Requête invalide")
+			http.Redirect(w, r, "/forgot-password", http.StatusSeeOther)
+			return
+		}
+
+		payload, _ := json.Marshal(map[string]string{
+			"email":  r.FormValue("email"),
+			"origin": requestOrigin(r),
+		})
+
+		resp, err := p.callBO("/api/internal/auth/forgot-password", payload)
+		if err != nil {
+			p.logger.Error("auth proxy: forgot-password call failed", "error", err)
+			setFlash(w, "error", "Service temporairement indisponible")
+			http.Redirect(w, r, "/forgot-password", http.StatusSeeOther)
+			return
+		}
+
+		if resp.Flash != "" {
+			setFlash(w, "success", resp.Flash)
+		}
+		redirect := resp.Redirect
+		if redirect == "" {
+			redirect = "/login"
+		}
+		http.Redirect(w, r, redirect, http.StatusSeeOther)
+	}
+}
+
+// ResetPasswordHandler returns an http.HandlerFunc for POST /reset-password on the FO.
+// It reads the form, calls BO /api/internal/auth/reset-password, and redirects.
+// The BO URL is never exposed to the user.
+func (p *AuthProxy) ResetPasswordHandler(setFlash func(http.ResponseWriter, string, string)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if p.HealthCheck != nil && !p.HealthCheck() {
+			setFlash(w, "error", "Service temporairement indisponible")
+			http.Redirect(w, r, "/forgot-password", http.StatusSeeOther)
+			return
+		}
+
+		if err := r.ParseForm(); err != nil {
+			setFlash(w, "error", "Requête invalide")
+			http.Redirect(w, r, "/forgot-password", http.StatusSeeOther)
+			return
+		}
+
+		token := r.FormValue("token")
+		password := r.FormValue("password")
+		confirm := r.FormValue("password_confirm")
+
+		if password != confirm {
+			setFlash(w, "error", "Les mots de passe ne correspondent pas")
+			http.Redirect(w, r, "/reset-password?token="+token, http.StatusSeeOther)
+			return
+		}
+
+		payload, _ := json.Marshal(map[string]string{
+			"token":    token,
+			"password": password,
+		})
+
+		resp, err := p.callBO("/api/internal/auth/reset-password", payload)
+		if err != nil {
+			p.logger.Error("auth proxy: reset-password call failed", "error", err)
+			setFlash(w, "error", "Service temporairement indisponible")
+			http.Redirect(w, r, "/forgot-password", http.StatusSeeOther)
+			return
+		}
+
+		if !resp.OK {
+			setFlash(w, "error", resp.Error)
+			http.Redirect(w, r, "/forgot-password", http.StatusSeeOther)
+			return
+		}
+
+		if resp.Flash != "" {
+			setFlash(w, "success", resp.Flash)
+		}
+		redirect := resp.Redirect
+		if redirect == "" {
+			redirect = "/login"
+		}
+		http.Redirect(w, r, redirect, http.StatusSeeOther)
+	}
+}
+
+// requestOrigin returns the scheme + host of the incoming request, e.g.
+// "https://fo.example.com". This is sent to the BO so it can build
+// user-facing links (password reset, email verification) using the FO domain.
+func requestOrigin(r *http.Request) string {
+	scheme := "https"
+	if r.TLS == nil {
+		// Check X-Forwarded-Proto (common behind reverse proxies).
+		if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
+			scheme = proto
+		} else {
+			scheme = "http"
+		}
+	}
+	host := r.Host
+	if h := r.Header.Get("X-Forwarded-Host"); h != "" {
+		host = h
+	}
+	return scheme + "://" + host
+}
+
 // callBO sends a JSON POST to the BO internal API and decodes the response.
 func (p *AuthProxy) callBO(path string, body []byte) (*authResponse, error) {
 	url := p.boURL + path

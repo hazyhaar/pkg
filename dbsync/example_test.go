@@ -69,7 +69,7 @@ func ExampleNewSubscriber() {
 func ExampleFilterSpec() {
 	spec := dbsync.FilterSpec{
 		// Tables copied without modification.
-		FullTables: []string{"badges", "reputation_config", "rate_limits"},
+		FullTables: []string{"badges", "reputation_config", "rate_limits", "maintenance"},
 
 		// Tables with row-level filtering.
 		FilteredTables: map[string]string{

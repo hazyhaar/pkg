@@ -14,7 +14,9 @@
 //
 // Or apply the default FO stack in one call:
 //
-//	for _, mw := range shield.DefaultFOStack(db) {
+//	stack, mm := shield.DefaultFOStack(db)
+//	mm.StartReloader(done)
+//	for _, mw := range stack {
 //	    r.Use(mw)
 //	}
 package shield
@@ -48,17 +50,21 @@ func GetFlash(ctx context.Context) *FlashMessage {
 }
 
 // DefaultFOStack returns the standard middleware stack for a HOROS FO service.
-// Middleware is ordered: HeadToGet → SecurityHeaders → MaxFormBody → TraceID → RateLimiter → Flash.
-func DefaultFOStack(db *sql.DB) []func(http.Handler) http.Handler {
+// Middleware is ordered: Maintenance → HeadToGet → SecurityHeaders → MaxFormBody → TraceID → RateLimiter → Flash.
+// The returned MaintenanceMode handle allows callers to set a custom page
+// and call StartReloader. Health checks (/healthz) bypass maintenance.
+func DefaultFOStack(db *sql.DB) ([]func(http.Handler) http.Handler, *MaintenanceMode) {
 	rl := NewRateLimiter(db)
+	mm := NewMaintenanceMode(db, "/healthz", "/static/")
 	return []func(http.Handler) http.Handler{
+		mm.Middleware,
 		HeadToGet,
 		SecurityHeaders(DefaultHeaders()),
 		MaxFormBody(64 * 1024),
 		TraceID,
 		rl.Middleware,
 		Flash,
-	}
+	}, mm
 }
 
 // DefaultBOStack returns the standard middleware stack for a HOROS BO service.
