@@ -34,7 +34,7 @@ type Contract[Req Codec[Req], Resp Codec[Resp]] struct {
 	// Service is the name used for routing in connectivity.Router.
 	Service string
 
-	// FormatID identifies the wire format (e.g. 1=JSON, 2=msgpack, 3=protobuf).
+	// FormatID identifies the wire format (1=JSON, 2=msgpack).
 	// When zero, the registry default is used.
 	FormatID uint16
 }

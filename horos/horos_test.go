@@ -84,6 +84,27 @@ func TestWrapRawFormat(t *testing.T) {
 	}
 }
 
+func TestWrapUnwrapMsgp(t *testing.T) {
+	// Msgpack payload is opaque bytes from the envelope's perspective.
+	payload := []byte{0x81, 0xa4, 't', 'e', 'x', 't', 0xa5, 'h', 'e', 'l', 'l', 'o'} // {"text":"hello"} in msgpack
+
+	wrapped, err := Wrap(FormatMsgp, payload)
+	if err != nil {
+		t.Fatalf("Wrap: %v", err)
+	}
+
+	fmtID, out, err := Unwrap(wrapped)
+	if err != nil {
+		t.Fatalf("Unwrap: %v", err)
+	}
+	if fmtID != FormatMsgp {
+		t.Fatalf("format ID: want %d, got %d", FormatMsgp, fmtID)
+	}
+	if string(out) != string(payload) {
+		t.Fatalf("payload mismatch")
+	}
+}
+
 func TestUnwrapTooShort(t *testing.T) {
 	data := []byte("hi")
 	fmtID, payload, err := Unwrap(data)
@@ -377,34 +398,43 @@ func TestRegistryBuiltins(t *testing.T) {
 	if info.Name != "json" {
 		t.Fatalf("expected json, got %s", info.Name)
 	}
-}
 
-func TestRegistryRegister(t *testing.T) {
-	r := NewRegistry()
-	err := r.Register(FormatInfo{ID: 2, Name: "msgpack", MIME: "application/msgpack"})
-	if err != nil {
-		t.Fatalf("Register: %v", err)
-	}
-
-	info, ok := r.Lookup(2)
+	info, ok = r.Lookup(FormatMsgp)
 	if !ok {
-		t.Fatal("expected format 2 to be registered")
+		t.Fatal("expected FormatMsgp to be registered")
 	}
 	if info.Name != "msgpack" {
 		t.Fatalf("expected msgpack, got %s", info.Name)
 	}
 }
 
+func TestRegistryRegister(t *testing.T) {
+	r := NewRegistry()
+	err := r.Register(FormatInfo{ID: 10, Name: "cbor", MIME: "application/cbor"})
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	info, ok := r.Lookup(10)
+	if !ok {
+		t.Fatal("expected format 10 to be registered")
+	}
+	if info.Name != "cbor" {
+		t.Fatalf("expected cbor, got %s", info.Name)
+	}
+}
+
 func TestRegistryConflict(t *testing.T) {
 	r := NewRegistry()
-	_ = r.Register(FormatInfo{ID: 2, Name: "msgpack", MIME: "application/msgpack"})
 
-	err := r.Register(FormatInfo{ID: 2, Name: "msgpack", MIME: "application/msgpack"})
+	// Idempotent re-register of a built-in should succeed.
+	err := r.Register(FormatInfo{ID: FormatMsgp, Name: "msgpack", MIME: "application/msgpack"})
 	if err != nil {
 		t.Fatalf("idempotent register should not fail: %v", err)
 	}
 
-	err = r.Register(FormatInfo{ID: 2, Name: "cbor", MIME: "application/cbor"})
+	// Registering a different name on an existing ID should fail.
+	err = r.Register(FormatInfo{ID: FormatMsgp, Name: "cbor", MIME: "application/cbor"})
 	if err == nil {
 		t.Fatal("expected conflict error, got nil")
 	}
@@ -412,10 +442,15 @@ func TestRegistryConflict(t *testing.T) {
 
 func TestRegistryAll(t *testing.T) {
 	r := NewRegistry()
-	_ = r.Register(FormatInfo{ID: 2, Name: "msgpack", MIME: "application/msgpack"})
 
 	all := r.All()
 	if len(all) != 3 {
-		t.Fatalf("expected 3 formats, got %d", len(all))
+		t.Fatalf("expected 3 built-in formats, got %d", len(all))
+	}
+
+	_ = r.Register(FormatInfo{ID: 10, Name: "cbor", MIME: "application/cbor"})
+	all = r.All()
+	if len(all) != 4 {
+		t.Fatalf("expected 4 formats after register, got %d", len(all))
 	}
 }

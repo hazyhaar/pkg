@@ -17,7 +17,7 @@ import (
 //
 // Total overhead: 6 bytes.
 //
-// - format_id: identifies the codec (0=raw/passthrough, 1=JSON, 2=msgpack, etc.)
+// - format_id: identifies the codec (0=raw, 1=JSON, 2=msgpack)
 // - checksum: CRC-32C (Castagnoli) of the payload, for integrity checking
 // - payload: the encoded request or response
 //
@@ -33,7 +33,15 @@ const (
 	FormatRaw uint16 = 0
 
 	// FormatJSON is the JSON codec format ID.
+	// JSON is format 1: the canonical, human-readable wire format.
+	// Use for debugging, external consumers, or when readability matters.
 	FormatJSON uint16 = 1
+
+	// FormatMsgp is the MessagePack codec format ID.
+	// Msgpack is format 2: the performance-optimized wire format for
+	// Go-to-Go inter-service communication. Keys are in cleartext in
+	// the encoding, so it remains inspectable unlike protobuf.
+	FormatMsgp uint16 = 2
 )
 
 // crc32c is the Castagnoli CRC-32 table, chosen for its hardware acceleration

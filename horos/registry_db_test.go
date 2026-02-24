@@ -29,8 +29,8 @@ func TestRegistryInitDB(t *testing.T) {
 	if err := db.QueryRow("SELECT count(*) FROM horos_formats").Scan(&count); err != nil {
 		t.Fatalf("count: %v", err)
 	}
-	if count != 2 {
-		t.Fatalf("expected 2 rows, got %d", count)
+	if count != 3 {
+		t.Fatalf("expected 3 rows (raw, json, msgpack), got %d", count)
 	}
 
 	var name string
@@ -39,6 +39,13 @@ func TestRegistryInitDB(t *testing.T) {
 	}
 	if name != "json" {
 		t.Fatalf("expected json, got %s", name)
+	}
+
+	if err := db.QueryRow("SELECT name FROM horos_formats WHERE id = ?", FormatMsgp).Scan(&name); err != nil {
+		t.Fatalf("query msgpack: %v", err)
+	}
+	if name != "msgpack" {
+		t.Fatalf("expected msgpack, got %s", name)
 	}
 }
 
@@ -49,7 +56,7 @@ func TestRegistrySyncToDB(t *testing.T) {
 		t.Fatalf("InitDB: %v", err)
 	}
 
-	_ = r.Register(FormatInfo{ID: 2, Name: "msgpack", MIME: "application/msgpack"})
+	_ = r.Register(FormatInfo{ID: 10, Name: "cbor", MIME: "application/cbor"})
 	if err := r.SyncToDB(db); err != nil {
 		t.Fatalf("SyncToDB: %v", err)
 	}
@@ -58,8 +65,8 @@ func TestRegistrySyncToDB(t *testing.T) {
 	if err := db.QueryRow("SELECT count(*) FROM horos_formats").Scan(&count); err != nil {
 		t.Fatalf("count: %v", err)
 	}
-	if count != 3 {
-		t.Fatalf("expected 3 rows after sync, got %d", count)
+	if count != 4 {
+		t.Fatalf("expected 4 rows after sync (3 built-in + cbor), got %d", count)
 	}
 }
 
@@ -76,7 +83,7 @@ func TestRegistryInitDBIdempotent(t *testing.T) {
 
 	var count int
 	_ = db.QueryRow("SELECT count(*) FROM horos_formats").Scan(&count)
-	if count != 2 {
-		t.Fatalf("expected 2 rows after double init, got %d", count)
+	if count != 3 {
+		t.Fatalf("expected 3 rows after double init, got %d", count)
 	}
 }
