@@ -21,6 +21,8 @@ type DynamicTool struct {
 	Mode          string // "readonly" or "readwrite"
 	Version       int
 	IsActive      bool
+	GroupTag      string // group isolation tag (default: "default")
+	TimeoutMs     int    // per-tool timeout in milliseconds (0 = use default)
 }
 
 // ModeReadonly and ModeReadWrite are the valid values for DynamicTool.Mode.

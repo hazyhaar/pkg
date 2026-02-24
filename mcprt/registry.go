@@ -120,6 +120,8 @@ func (r *Registry) migrate() error {
 	alters := []string{
 		`ALTER TABLE mcp_tools_registry ADD COLUMN mode TEXT NOT NULL DEFAULT 'readwrite'`,
 		`ALTER TABLE mcp_tools_history ADD COLUMN mode TEXT NOT NULL DEFAULT 'readwrite'`,
+		`ALTER TABLE mcp_tools_registry ADD COLUMN group_tag TEXT DEFAULT 'default'`,
+		`ALTER TABLE mcp_tools_registry ADD COLUMN timeout_ms INTEGER DEFAULT 30000`,
 	}
 	for _, stmt := range alters {
 		if _, err := r.db.Exec(stmt); err != nil {
@@ -138,7 +140,8 @@ func (r *Registry) LoadTools(ctx context.Context) error {
 
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT tool_name, tool_category, description, input_schema,
-		       handler_type, handler_config, mode, version, is_active
+		       handler_type, handler_config, mode, version, is_active,
+		       COALESCE(group_tag, 'default'), COALESCE(timeout_ms, 30000)
 		FROM mcp_tools_registry
 		WHERE is_active = 1
 		ORDER BY tool_category, tool_name`)
@@ -152,11 +155,15 @@ func (r *Registry) LoadTools(ctx context.Context) error {
 		var t DynamicTool
 		var schemaJSON, configJSON string
 		if err := rows.Scan(&t.Name, &t.Category, &t.Description,
-			&schemaJSON, &t.HandlerType, &configJSON, &t.Mode, &t.Version, &t.IsActive); err != nil {
+			&schemaJSON, &t.HandlerType, &configJSON, &t.Mode, &t.Version, &t.IsActive,
+			&t.GroupTag, &t.TimeoutMs); err != nil {
 			return fmt.Errorf("scan tool: %w", err)
 		}
 		if t.Mode == "" {
 			t.Mode = ModeReadWrite
+		}
+		if t.GroupTag == "" {
+			t.GroupTag = "default"
 		}
 		if err := json.Unmarshal([]byte(schemaJSON), &t.InputSchema); err != nil {
 			slog.Warn("bad input_schema, skipping", "tool", t.Name, "error", err)

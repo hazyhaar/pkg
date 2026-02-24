@@ -14,8 +14,11 @@ import (
 type BridgeOption func(*bridgeConfig)
 
 type bridgeConfig struct {
-	policy PolicyFunc
-	audit  AuditFunc
+	policy    PolicyFunc
+	audit     AuditFunc
+	sanitizer *Sanitizer
+	groups    *groupConfig
+	timeoutDB bool // use timeout_ms column from registry
 }
 
 // WithPolicy adds a policy check before each tool execution.
@@ -43,6 +46,10 @@ func Bridge(srv *mcp.Server, reg *Registry, opts ...BridgeOption) {
 		o(&cfg)
 	}
 	for _, t := range reg.ListTools() {
+		// Apply sanitizer to tool metadata before exposing to LLM.
+		if cfg.sanitizer != nil {
+			cfg.sanitizer.SanitizeTool(t)
+		}
 		registerDynamicTool(srv, reg, t, &cfg)
 	}
 }
@@ -56,7 +63,18 @@ func registerDynamicTool(srv *mcp.Server, reg *Registry, t *DynamicTool, cfg *br
 
 	toolName := t.Name
 	toolVersion := t.Version
+	toolGroupTag := t.GroupTag
+	toolTimeoutMs := t.TimeoutMs
 	srv.AddTool(tool, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// Group isolation check.
+		if cfg.groups != nil {
+			if err := cfg.groups.check(ctx, toolName, toolGroupTag); err != nil {
+				var res mcp.CallToolResult
+				res.SetError(err)
+				return &res, nil
+			}
+		}
+
 		// Policy check — before parsing arguments.
 		if cfg.policy != nil {
 			if err := cfg.policy(ctx, toolName); err != nil {
@@ -75,8 +93,16 @@ func registerDynamicTool(srv *mcp.Server, reg *Registry, t *DynamicTool, cfg *br
 			}
 		}
 
+		// Per-tool timeout from registry.
+		execCtx := ctx
+		if cfg.timeoutDB && toolTimeoutMs > 0 {
+			var cancel context.CancelFunc
+			execCtx, cancel = context.WithTimeout(ctx, time.Duration(toolTimeoutMs)*time.Millisecond)
+			defer cancel()
+		}
+
 		start := time.Now()
-		result, execErr := reg.ExecuteTool(ctx, toolName, params)
+		result, execErr := reg.ExecuteTool(execCtx, toolName, params)
 		duration := time.Since(start)
 
 		// Audit hook — always called, even on error.
