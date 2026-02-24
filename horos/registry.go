@@ -37,6 +37,8 @@ func NewRegistry() *Registry {
 	r.formats[FormatRaw] = FormatInfo{ID: FormatRaw, Name: "raw", MIME: "application/octet-stream"}
 	// Built-in: JSON.
 	r.formats[FormatJSON] = FormatInfo{ID: FormatJSON, Name: "json", MIME: "application/json"}
+	// Built-in: MessagePack.
+	r.formats[FormatMsgp] = FormatInfo{ID: FormatMsgp, Name: "msgpack", MIME: "application/msgpack"}
 	return r
 }
 
