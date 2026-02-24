@@ -1,5 +1,3 @@
-//go:build cgo || sqlite
-
 package horos
 
 import (

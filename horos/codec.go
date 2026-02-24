@@ -12,8 +12,8 @@ import "context"
 // The F-bounded constraint T Codec[T] ensures that Decode returns the
 // concrete type, not an interface — zero runtime casts, zero panics.
 //
-// This requires Go 1.26+ which lifted the restriction on self-referential
-// type parameter lists.
+// The F-bounded constraint T Codec[T] has been supported since Go 1.18
+// (generics introduction).
 type Codec[T any] interface {
 	Encode() ([]byte, error)
 	Decode([]byte) (T, error)

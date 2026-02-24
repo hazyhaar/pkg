@@ -90,11 +90,16 @@ func (r *Registry) InitDB(db *sql.DB) error {
 		return fmt.Errorf("horos: create formats table: %w", err)
 	}
 
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+	snapshot := r.All()
 
-	for _, info := range r.formats {
-		_, err := db.Exec(
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("horos: begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	for _, info := range snapshot {
+		_, err := tx.Exec(
 			`INSERT OR IGNORE INTO horos_formats (id, name, mime) VALUES (?, ?, ?)`,
 			info.ID, info.Name, info.MIME,
 		)
@@ -103,17 +108,22 @@ func (r *Registry) InitDB(db *sql.DB) error {
 		}
 	}
 
-	return nil
+	return tx.Commit()
 }
 
 // SyncToDB writes all registered formats to the SQLite table (upsert).
 // Call this after registering new formats at runtime.
 func (r *Registry) SyncToDB(db *sql.DB) error {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+	snapshot := r.All()
 
-	for _, info := range r.formats {
-		_, err := db.Exec(
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("horos: begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	for _, info := range snapshot {
+		_, err := tx.Exec(
 			`INSERT INTO horos_formats (id, name, mime) VALUES (?, ?, ?)
 			 ON CONFLICT(id) DO UPDATE SET name=excluded.name, mime=excluded.mime`,
 			info.ID, info.Name, info.MIME,
@@ -123,5 +133,5 @@ func (r *Registry) SyncToDB(db *sql.DB) error {
 		}
 	}
 
-	return nil
+	return tx.Commit()
 }

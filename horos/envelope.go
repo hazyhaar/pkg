@@ -62,16 +62,17 @@ func Unwrap(data []byte) (formatID uint16, payload []byte, err error) {
 	}
 
 	formatID = binary.LittleEndian.Uint16(data[0:2])
-	if formatID == FormatRaw {
-		// Explicit raw marker (shouldn't happen via Wrap, but handle it).
-		return FormatRaw, data[HeaderSize:], nil
-	}
-
 	expected := binary.LittleEndian.Uint32(data[2:6])
 	payload = data[HeaderSize:]
 	actual := crc32.Checksum(payload, crc32c)
 
 	if actual != expected {
+		if formatID == FormatRaw {
+			// Checksum mismatch with format_id=0: this is non-enveloped data
+			// whose first bytes happen to be 0x0000. Return the full original
+			// data untouched rather than silently stripping 6 bytes.
+			return FormatRaw, data, nil
+		}
 		return 0, nil, &ErrChecksum{
 			Expected: expected,
 			Actual:   actual,

@@ -112,11 +112,15 @@ func NewServiceError(code, message string) *ServiceError {
 }
 
 // WithDetails returns a copy of the error with JSON details attached.
-func (e *ServiceError) WithDetails(v any) *ServiceError {
-	data, _ := json.Marshal(v)
+// Returns an error if v cannot be marshaled to JSON.
+func (e *ServiceError) WithDetails(v any) (*ServiceError, error) {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return nil, fmt.Errorf("horos: marshal details: %w", err)
+	}
 	cp := *e
 	cp.Details = data
-	return &cp
+	return &cp, nil
 }
 
 // WithService returns a copy of the error with the service name set.

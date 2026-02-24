@@ -114,6 +114,65 @@ func TestUnwrapChecksumMismatch(t *testing.T) {
 	}
 }
 
+func TestUnwrapRawChecksumVerified(t *testing.T) {
+	// Wrap with FormatRaw produces a valid envelope with checksum.
+	payload := []byte(`raw content here`)
+	wrapped, _ := Wrap(FormatRaw, payload)
+
+	// Corrupt one byte of the payload section.
+	wrapped[len(wrapped)-1] ^= 0xFF
+
+	// Unwrap should detect corruption: checksum mismatch with format_id=0
+	// means the data doesn't look like a valid raw envelope, so it falls
+	// back to returning the full (corrupted) data as non-enveloped raw.
+	fmtID, out, err := Unwrap(wrapped)
+	if err != nil {
+		t.Fatalf("Unwrap corrupted raw: unexpected error %v", err)
+	}
+	if fmtID != FormatRaw {
+		t.Fatalf("expected FormatRaw, got %d", fmtID)
+	}
+	// Returns the full corrupted data (not stripped) since checksum failed.
+	if len(out) != len(wrapped) {
+		t.Fatalf("expected full data (%d bytes), got %d bytes", len(wrapped), len(out))
+	}
+}
+
+func TestUnwrapRawChecksumValid(t *testing.T) {
+	// Wrap with FormatRaw, don't corrupt — checksum matches, payload stripped.
+	payload := []byte(`valid raw`)
+	wrapped, _ := Wrap(FormatRaw, payload)
+
+	fmtID, out, err := Unwrap(wrapped)
+	if err != nil {
+		t.Fatalf("Unwrap valid raw: %v", err)
+	}
+	if fmtID != FormatRaw {
+		t.Fatalf("expected FormatRaw, got %d", fmtID)
+	}
+	if string(out) != string(payload) {
+		t.Fatalf("payload: want %q, got %q", payload, out)
+	}
+}
+
+func TestUnwrapNonEnvelopedZeroPrefix(t *testing.T) {
+	// Non-enveloped binary data that happens to start with 0x0000.
+	// Must NOT be misinterpreted as a raw envelope.
+	data := []byte{0x00, 0x00, 0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x02, 0x03}
+
+	fmtID, out, err := Unwrap(data)
+	if err != nil {
+		t.Fatalf("Unwrap non-enveloped: %v", err)
+	}
+	if fmtID != FormatRaw {
+		t.Fatalf("expected FormatRaw, got %d", fmtID)
+	}
+	// Full original data returned since CRC won't match.
+	if len(out) != len(data) {
+		t.Fatalf("expected full data (%d bytes), got %d bytes — data was incorrectly stripped", len(data), len(out))
+	}
+}
+
 // ---------------------------------------------------------------------------
 // ServiceError tests
 // ---------------------------------------------------------------------------
@@ -192,8 +251,11 @@ func TestToServiceError(t *testing.T) {
 }
 
 func TestServiceErrorWithDetails(t *testing.T) {
-	err := NewServiceError("BAD_REQUEST", "validation failed")
-	detailed := err.WithDetails(map[string]string{"field": "name"})
+	svcErr := NewServiceError("BAD_REQUEST", "validation failed")
+	detailed, err := svcErr.WithDetails(map[string]string{"field": "name"})
+	if err != nil {
+		t.Fatalf("WithDetails: %v", err)
+	}
 
 	if detailed.Details == nil {
 		t.Fatal("expected details to be set")
@@ -207,8 +269,17 @@ func TestServiceErrorWithDetails(t *testing.T) {
 		t.Fatalf("expected field=name, got %v", m)
 	}
 
-	if err.Details != nil {
+	if svcErr.Details != nil {
 		t.Fatal("original error should not have details")
+	}
+}
+
+func TestServiceErrorWithDetailsMarshalError(t *testing.T) {
+	svcErr := NewServiceError("BAD_REQUEST", "test")
+	// channels cannot be marshaled to JSON
+	_, err := svcErr.WithDetails(make(chan int))
+	if err == nil {
+		t.Fatal("expected marshal error, got nil")
 	}
 }
 
