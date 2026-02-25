@@ -106,14 +106,15 @@ func Open(path string, opts ...Option) (*sql.DB, error) {
 		}
 	}
 
-	db, err := sql.Open(cfg.driver, path)
+	// Build DSN with _txlock=immediate and _pragma= for all production pragmas.
+	// _txlock=immediate: all transactions use BEGIN IMMEDIATE (no DEFERRED promotion failures).
+	// _pragma=: applied per-connection by the driver — critical because database/sql pools
+	// connections, and a post-Open db.Exec("PRAGMA ...") only hits one connection.
+	dsn := buildDSN(path, &cfg)
+
+	db, err := sql.Open(cfg.driver, dsn)
 	if err != nil {
 		return nil, fmt.Errorf("dbopen: open: %w", err)
-	}
-
-	if err := applyPragmas(db, &cfg); err != nil {
-		db.Close()
-		return nil, err
 	}
 
 	for _, f := range cfg.schemaFiles {
@@ -160,27 +161,24 @@ func OpenMemory(t testing.TB, opts ...Option) *sql.DB {
 	return db
 }
 
-func applyPragmas(db *sql.DB, cfg *config) error {
-	fk := "ON"
+// buildDSN constructs a modernc.org/sqlite DSN with _txlock=immediate and
+// _pragma= parameters. The _pragma= parameters are applied per-connection
+// by the driver, which is critical for database/sql connection pools.
+func buildDSN(path string, cfg *config) string {
+	fk := "1"
 	if !cfg.foreignKeys {
-		fk = "OFF"
+		fk = "0"
 	}
 
-	pragmas := []string{
-		fmt.Sprintf("PRAGMA foreign_keys = %s", fk),
-		"PRAGMA journal_mode = WAL",
-		fmt.Sprintf("PRAGMA busy_timeout = %d", cfg.busyTimeout),
-		fmt.Sprintf("PRAGMA synchronous = %s", cfg.synchronous),
-	}
+	dsn := path + "?_txlock=immediate"
+	dsn += fmt.Sprintf("&_pragma=busy_timeout(%d)", cfg.busyTimeout)
+	dsn += "&_pragma=journal_mode(WAL)"
+	dsn += "&_pragma=foreign_keys(" + fk + ")"
+	dsn += "&_pragma=synchronous(" + cfg.synchronous + ")"
 
 	if cfg.cacheSize != 0 {
-		pragmas = append(pragmas, fmt.Sprintf("PRAGMA cache_size = %d", cfg.cacheSize))
+		dsn += fmt.Sprintf("&_pragma=cache_size(%d)", cfg.cacheSize)
 	}
 
-	for _, p := range pragmas {
-		if _, err := db.Exec(p); err != nil {
-			return fmt.Errorf("dbopen: %s: %w", p, err)
-		}
-	}
-	return nil
+	return dsn
 }
