@@ -13,23 +13,26 @@ Package Go partagé de l'écosystème HOROS. Bibliothèque de composants réutil
 
 | Package | Rôle |
 |---------|------|
+| `apikey` | Cycle de vie clés API (horoskeys) — génération, résolution SHA-256, révocation, scoping services |
 | `auth` | JWT claims, cookie management, OAuth (Google), middleware auth |
 | `authproxy` | Proxy auth FO→BO (login, register, forgot-password avec origin, reset-password) |
 | `audit` | Logger d'audit SQLite (qui a fait quoi, quand) |
 | `chassis` | Unified chassis pattern (HTTP + MCP server) |
 | `channels` | Dispatching multi-canal (Discord, Telegram, WhatsApp, webhooks) |
+| `chunk` | Découpage texte RAG avec overlap, paragraph-aware (migré depuis chrc) |
 | `connectivity` | Router inter-services, circuit breaker, retry, factory HTTP/MCP |
 | `dbopen` | Helper ouverture SQLite avec pragmas + retry |
 | `dbsync` | Réplication SQLite BO→FO via QUIC (publisher, subscriber, filter, snapshot) |
 | `feedback` | Widget feedback intégrable (HTML/CSS/JS + handlers) |
 | `horosafe` | Sanitization et validation input |
+| `horosembed` | Client embeddings transport-agnostique, vector ops, EmbedFactory (migré depuis chrc) |
 | `idgen` | Génération UUID v7 |
 | `kit` | Context helpers, endpoint pattern, MCP tool registration |
 | `mcpquic` | Transport QUIC pour MCP (client + server) |
 | `mcprt` | Runtime MCP dynamique (bridge, registry, hot-reload tools) |
 | `observability` | Audit, heartbeat, metrics, schema |
 | `sas_chunker` | Chunking de fichiers pour ingestion |
-| `sas_ingester` | Ingestion SAS avec TUS upload, metadata, identity |
+| `sas_ingester` | Ingestion SAS avec TUS upload, metadata, identity, connectivity, MCP, markdown |
 | `shield` | Middleware HTTP sécurité (rate limit, headers, flash, trace ID, CSRF) |
 | `trace` | Tracing SQL (store, driver wrapper) |
 | `vtq` | Virtual Task Queue pattern |

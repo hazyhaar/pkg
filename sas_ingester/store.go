@@ -35,6 +35,10 @@ func (s *Store) DB() *sql.DB { return s.db }
 func (s *Store) Close() error { return s.db.Close() }
 
 func (s *Store) migrate() error {
+	// Ensure foreign keys are enforced (required for CASCADE deletes).
+	if _, err := s.db.Exec(`PRAGMA foreign_keys = ON`); err != nil {
+		return fmt.Errorf("enable foreign keys: %w", err)
+	}
 	const ddl = `
 CREATE TABLE IF NOT EXISTS dossiers (
     id              TEXT PRIMARY KEY,
@@ -94,10 +98,20 @@ CREATE TABLE IF NOT EXISTS tus_uploads (
     completed       INTEGER NOT NULL DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS pieces_markdown (
+    sha256      TEXT NOT NULL,
+    dossier_id  TEXT NOT NULL,
+    markdown    TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    PRIMARY KEY (sha256, dossier_id),
+    FOREIGN KEY (sha256, dossier_id) REFERENCES pieces(sha256, dossier_id) ON DELETE CASCADE
+);
+
 CREATE INDEX IF NOT EXISTS idx_pieces_state   ON pieces(state);
 CREATE INDEX IF NOT EXISTS idx_routes_retry   ON routes_pending(next_retry_at);
 CREATE INDEX IF NOT EXISTS idx_dossiers_owner ON dossiers(owner_jwt_sub);
 CREATE INDEX IF NOT EXISTS idx_tus_dossier    ON tus_uploads(dossier_id);
+CREATE INDEX IF NOT EXISTS idx_markdown_dossier ON pieces_markdown(dossier_id);
 `
 	_, err := s.db.Exec(ddl)
 	return err
@@ -530,4 +544,65 @@ func (s *Store) CompleteTusUpload(uploadID string) error {
 func (s *Store) DeleteTusUpload(uploadID string) error {
 	_, err := s.db.Exec(`DELETE FROM tus_uploads WHERE upload_id = ?`, uploadID)
 	return err
+}
+
+// --- Markdown ---
+
+// PieceMarkdown represents a row in pieces_markdown.
+type PieceMarkdown struct {
+	SHA256    string `json:"sha256"`
+	DossierID string `json:"dossier_id"`
+	Markdown  string `json:"markdown"`
+	CreatedAt string `json:"created_at"`
+}
+
+// StoreMarkdown inserts or replaces a markdown conversion for a piece.
+func (s *Store) StoreMarkdown(sha256, dossierID, markdown string) error {
+	_, err := s.db.Exec(
+		`INSERT OR REPLACE INTO pieces_markdown (sha256, dossier_id, markdown, created_at) VALUES (?, ?, ?, ?)`,
+		sha256, dossierID, markdown, time.Now().UTC().Format(time.RFC3339),
+	)
+	return err
+}
+
+// GetMarkdown returns the markdown text for a piece. Returns "", nil if not found.
+func (s *Store) GetMarkdown(sha256, dossierID string) (string, error) {
+	var md string
+	err := s.db.QueryRow(
+		`SELECT markdown FROM pieces_markdown WHERE sha256 = ? AND dossier_id = ?`, sha256, dossierID,
+	).Scan(&md)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return md, err
+}
+
+// ListMarkdownByDossier returns all markdown entries for a dossier.
+func (s *Store) ListMarkdownByDossier(dossierID string) ([]*PieceMarkdown, error) {
+	rows, err := s.db.Query(
+		`SELECT sha256, dossier_id, markdown, created_at FROM pieces_markdown WHERE dossier_id = ? ORDER BY created_at DESC`, dossierID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []*PieceMarkdown
+	for rows.Next() {
+		m := &PieceMarkdown{}
+		if err := rows.Scan(&m.SHA256, &m.DossierID, &m.Markdown, &m.CreatedAt); err != nil {
+			return nil, err
+		}
+		results = append(results, m)
+	}
+	return results, rows.Err()
+}
+
+// HasMarkdown checks if a markdown conversion exists for a piece.
+func (s *Store) HasMarkdown(sha256, dossierID string) (bool, error) {
+	var count int
+	err := s.db.QueryRow(
+		`SELECT COUNT(*) FROM pieces_markdown WHERE sha256 = ? AND dossier_id = ?`, sha256, dossierID,
+	).Scan(&count)
+	return count > 0, err
 }

@@ -14,13 +14,15 @@ import (
 
 // Ingester is the main pipeline orchestrator.
 type Ingester struct {
-	Store   *Store
-	Config  *Config
-	Router  *Router
-	Audit   *observability.AuditLogger
-	Metrics *observability.MetricsManager
-	Events  *observability.EventLogger
-	NewID   idgen.Generator
+	Store             *Store
+	Config            *Config
+	Router            *Router
+	Audit             *observability.AuditLogger
+	Metrics           *observability.MetricsManager
+	Events            *observability.EventLogger
+	NewID             idgen.Generator
+	MarkdownConverter MarkdownConverter // optional, set via WithMarkdownConverter
+	KeyResolver       KeyResolver       // required for MCP/connectivity auth, set via WithKeyResolver
 }
 
 // IngesterOption configures an Ingester.
@@ -44,6 +46,43 @@ func WithEvents(e *observability.EventLogger) IngesterOption {
 // WithIDGenerator sets the ID generator for dossier IDs.
 func WithIDGenerator(g idgen.Generator) IngesterOption {
 	return func(ing *Ingester) { ing.NewID = g }
+}
+
+// WithMarkdownConverter sets the callback that converts ingested files to markdown.
+// The converter is called in step 5.5 of the pipeline, between metadata update
+// and route enqueuing. If nil, the markdown step is silently skipped.
+func WithMarkdownConverter(fn MarkdownConverter) IngesterOption {
+	return func(ing *Ingester) { ing.MarkdownConverter = fn }
+}
+
+// WithKeyResolver sets the callback that resolves a horoskey (API key) to an
+// owner identity. Required for MCP and connectivity handlers to authenticate
+// callers. Without it, all authenticated handlers reject with an error.
+func WithKeyResolver(fn KeyResolver) IngesterOption {
+	return func(ing *Ingester) { ing.KeyResolver = fn }
+}
+
+// resolveOwner extracts the owner identity from either a direct ownerSub
+// (service-to-service, already authenticated upstream) or a horoskey (LLM/API,
+// resolved via KeyResolver). At least one must be provided.
+func (ing *Ingester) resolveOwner(ctx context.Context, ownerSub, horoskey string) (string, error) {
+	if ownerSub != "" {
+		return ownerSub, nil
+	}
+	if horoskey == "" {
+		return "", fmt.Errorf("authentication required: provide owner_sub or horoskey")
+	}
+	if ing.KeyResolver == nil {
+		return "", fmt.Errorf("horoskey provided but no KeyResolver configured")
+	}
+	resolved, err := ing.KeyResolver(ctx, horoskey)
+	if err != nil {
+		return "", fmt.Errorf("invalid horoskey: %w", err)
+	}
+	if resolved == "" {
+		return "", fmt.Errorf("KeyResolver returned empty ownerSub")
+	}
+	return resolved, nil
 }
 
 // NewIngester creates a fully wired ingester.
@@ -214,7 +253,7 @@ func (ing *Ingester) IngestFromUploadWithToken(upload *UploadResult, dossierID, 
 	return ing.processPipeline(upload, dossierID, originalToken, result, start)
 }
 
-// processPipeline runs steps 2-6: metadata, scan, injection, state, routes.
+// processPipeline runs steps 2-6: metadata, scan, injection, state, markdown, routes.
 // INVARIANT: ownerSub is NOT passed here. Only the opaque dossierID is used.
 // The originalToken is forwarded to jwt_passthru routes only and never logged.
 func (ing *Ingester) processPipeline(upload *UploadResult, dossierID, originalToken string, result *IngestResult, start time.Time) (*IngestResult, error) {
@@ -285,6 +324,16 @@ func (ing *Ingester) processPipeline(upload *UploadResult, dossierID, originalTo
 	ing.recordMetric(observability.MetricWorkflowDurationMs, float64(duration.Milliseconds()), "milliseconds")
 	ing.recordMetric(observability.MetricTaskProcessedCount, 1, "count")
 
+	// Step 5.5: convert to markdown (non-blocking on failure).
+	if finalState == "ready" && ing.MarkdownConverter != nil {
+		md, err := ing.convertToMarkdown(context.Background(), upload.SHA256, dossierID, mime)
+		if err != nil {
+			slog.Warn("markdown conversion failed", "component", "ingester",
+				"sha256", upload.SHA256, "error", err)
+		}
+		result.MarkdownText = md
+	}
+
 	// Step 6: enqueue routes (originalToken forwarded for jwt_passthru).
 	piece, _ := ing.Store.GetPiece(upload.SHA256, dossierID)
 	if piece != nil && finalState == "ready" {
@@ -306,4 +355,5 @@ type IngestResult struct {
 	Deduplicated bool             `json:"deduplicated,omitempty"`
 	Scan         *ScanResult      `json:"scan,omitempty"`
 	Injection    *InjectionResult `json:"injection,omitempty"`
+	MarkdownText string           `json:"markdown_text,omitempty"`
 }

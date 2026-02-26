@@ -80,14 +80,7 @@ func ReceiveFile(r io.Reader, dossierID string, cfg *Config, store *Store) (*Upl
 		finalDir = chunkDir
 	}
 
-	// Record each chunk in the DB for tracking.
-	for _, cm := range manifest.Chunks {
-		if err := store.InsertChunk(hash, dossierID, cm.Index, cm.SHA256, true); err != nil {
-			return nil, fmt.Errorf("record chunk %d: %w", cm.Index, err)
-		}
-	}
-
-	// Stage 4: record the piece.
+	// Stage 4: record the piece first (FK: chunks reference pieces).
 	now := time.Now().UTC().Format(time.RFC3339)
 	if err := store.InsertPiece(&Piece{
 		SHA256:        hash,
@@ -100,6 +93,13 @@ func ReceiveFile(r io.Reader, dossierID string, cfg *Config, store *Store) (*Upl
 		UpdatedAt:     now,
 	}); err != nil {
 		return nil, fmt.Errorf("insert piece: %w", err)
+	}
+
+	// Record each chunk in the DB for tracking.
+	for _, cm := range manifest.Chunks {
+		if err := store.InsertChunk(hash, dossierID, cm.Index, cm.SHA256, true); err != nil {
+			return nil, fmt.Errorf("record chunk %d: %w", cm.Index, err)
+		}
 	}
 
 	return &UploadResult{

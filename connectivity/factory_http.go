@@ -21,21 +21,42 @@ type httpConfig struct {
 	ContentType string `json:"content_type"`
 }
 
+// HTTPOpt configures HTTPFactory behavior.
+type HTTPOpt func(*httpFactoryOpts)
+
+type httpFactoryOpts struct {
+	allowInternal bool
+}
+
+// AllowInternal disables the SSRF guard, permitting localhost and private
+// IPs as endpoints. Use this for trusted inter-service calls on the same
+// machine (e.g. siftrag → veille via Gateway on 127.0.0.1).
+func AllowInternal() HTTPOpt {
+	return func(o *httpFactoryOpts) { o.allowInternal = true }
+}
+
 // HTTPFactory creates Handlers that POST the payload to a remote HTTP
 // endpoint. It supports per-route timeout and content-type from the
 // config JSON column.
 //
 // SSRF prevention: the endpoint URL is validated against private/loopback
-// addresses at factory creation time.
+// addresses at factory creation time, unless AllowInternal() is passed.
 //
 // Register it with:
 //
 //	router.RegisterTransport("http", connectivity.HTTPFactory())
-func HTTPFactory() TransportFactory {
+//	router.RegisterTransport("http", connectivity.HTTPFactory(connectivity.AllowInternal()))
+func HTTPFactory(opts ...HTTPOpt) TransportFactory {
+	var o httpFactoryOpts
+	for _, opt := range opts {
+		opt(&o)
+	}
 	return func(endpoint string, config json.RawMessage) (Handler, func(), error) {
 		// SSRF guard: reject endpoints pointing to private/loopback addresses.
-		if err := horosafe.ValidateURL(endpoint); err != nil {
-			return nil, nil, fmt.Errorf("connectivity/http: %w", err)
+		if !o.allowInternal {
+			if err := horosafe.ValidateURL(endpoint); err != nil {
+				return nil, nil, fmt.Errorf("connectivity/http: %w", err)
+			}
 		}
 
 		var cfg httpConfig

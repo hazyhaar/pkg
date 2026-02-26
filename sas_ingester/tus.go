@@ -177,14 +177,7 @@ func (h *TusHandler) Complete(uploadID string) (*UploadResult, error) {
 		return nil, fmt.Errorf("chunk tus upload: %w", err)
 	}
 
-	// Record chunks in DB.
-	for _, cm := range manifest.Chunks {
-		if err := h.store.InsertChunk(hash, u.DossierID, cm.Index, cm.SHA256, true); err != nil {
-			return nil, fmt.Errorf("record chunk %d: %w", cm.Index, err)
-		}
-	}
-
-	// Record piece.
+	// Record piece first (FK: chunks reference pieces).
 	now := time.Now().UTC().Format(time.RFC3339)
 	if err := h.store.InsertPiece(&Piece{
 		SHA256:        hash,
@@ -197,6 +190,13 @@ func (h *TusHandler) Complete(uploadID string) (*UploadResult, error) {
 		UpdatedAt:     now,
 	}); err != nil {
 		return nil, fmt.Errorf("insert piece: %w", err)
+	}
+
+	// Record chunks in DB.
+	for _, cm := range manifest.Chunks {
+		if err := h.store.InsertChunk(hash, u.DossierID, cm.Index, cm.SHA256, true); err != nil {
+			return nil, fmt.Errorf("record chunk %d: %w", cm.Index, err)
+		}
 	}
 
 	// Clean up: remove the tus staging directory (chunks are in finalDir).

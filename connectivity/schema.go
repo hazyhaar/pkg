@@ -10,10 +10,13 @@ import (
 // Each row maps a service name to a dispatch strategy.
 //
 // Strategies:
-//   - "local": dispatch to an in-memory Handler registered via RegisterLocal.
-//   - "quic":  dispatch via the QUIC transport factory.
-//   - "http":  dispatch via the HTTP transport factory.
-//   - "noop":  silently succeed without doing anything (feature flag / disable).
+//   - "local":  dispatch to an in-memory Handler registered via RegisterLocal.
+//   - "quic":   dispatch via the QUIC transport factory.
+//   - "http":   dispatch via the HTTP transport factory.
+//   - "mcp":    dispatch via the MCP transport factory.
+//   - "dbsync": dispatch via the dbsync transport factory.
+//   - "embed":  dispatch via the embed transport factory (horosembed.EmbedFactory).
+//   - "noop":   silently succeed without doing anything (feature flag / disable).
 //
 // The config column holds per-route JSON (timeouts, retry policy, etc.).
 // Any UPDATE to this table automatically increments PRAGMA data_version,
@@ -21,7 +24,7 @@ import (
 const Schema = `
 CREATE TABLE IF NOT EXISTS routes (
     service_name TEXT PRIMARY KEY,
-    strategy     TEXT NOT NULL CHECK(strategy IN ('local', 'quic', 'http', 'mcp', 'dbsync', 'noop')),
+    strategy     TEXT NOT NULL CHECK(strategy IN ('local', 'quic', 'http', 'mcp', 'dbsync', 'embed', 'noop')),
     endpoint     TEXT,
     config       TEXT DEFAULT '{}',
     updated_at   INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
