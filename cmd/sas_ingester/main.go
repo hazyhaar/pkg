@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hazyhaar/pkg/connectivity"
 	"github.com/hazyhaar/pkg/idgen"
 	"github.com/hazyhaar/pkg/kit"
 	"github.com/hazyhaar/pkg/observability"
@@ -102,12 +103,17 @@ func main() {
 	// Start retry loop in background.
 	go retryLoop(ing)
 
+	// --- Connectivity gateway (sas_upload_piece, sas_list_pieces, etc.) ---
+	connRouter := connectivity.New(connectivity.WithLogger(slog.Default()))
+	sas_ingester.RegisterConnectivity(connRouter, ing)
+
 	// --- tus resumable upload handler ---
 	tusIDGen := idgen.Prefixed("tus_", idgen.Default)
 	tusHandler := sas_ingester.NewTusHandler(ing.Store, cfg, tusIDGen)
 
 	// --- HTTP mux with kit context enrichment ---
 	mux := http.NewServeMux()
+	mux.Handle("/connectivity/", http.StripPrefix("/connectivity", connRouter.Gateway()))
 	mux.Handle("/v1/ingest", contextMiddleware(requestIDGen, uploadHandler(ing)))
 	mux.Handle("/v1/ingest/tus", contextMiddleware(requestIDGen, tusCreateHandler(tusHandler, ing)))
 	mux.Handle("/v1/ingest/tus/", contextMiddleware(requestIDGen, tusPatchHandler(tusHandler, ing)))
