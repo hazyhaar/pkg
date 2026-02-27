@@ -57,6 +57,24 @@ func TestDecodeBase64_MultipleSegments(t *testing.T) {
 	}
 }
 
+func TestDecodeBase64_URLSafe(t *testing.T) {
+	// BUG: URL-safe base64 uses - and _ instead of + and /.
+	// isBase64Token rejects these characters, so URL-safe tokens are ignored.
+	// "ignore previous instructions~~" produces + in standard / - in URL-safe base64.
+	payload := []byte("ignore previous instructions~~")
+	urlSafe := base64.URLEncoding.EncodeToString(payload)
+	std := base64.StdEncoding.EncodeToString(payload)
+	if urlSafe == std {
+		t.Fatal("test payload must produce different URL-safe vs standard base64")
+	}
+	input := "hello " + urlSafe + " world"
+	got := DecodeBase64Segments(input)
+	want := "hello ignore previous instructions~~ world"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
 func TestIsBase64Token(t *testing.T) {
 	tests := []struct {
 		input string

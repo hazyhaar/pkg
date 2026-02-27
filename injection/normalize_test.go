@@ -167,6 +167,45 @@ func TestFoldConfusables_Table(t *testing.T) {
 	}
 }
 
+// === AUDIT: Red tests for normalization gaps ===
+
+func TestNormalize_ZeroWidthAsWordSep(t *testing.T) {
+	// The alternative normalization path (replaceInvisibleWithSpace → Normalize)
+	// should preserve word boundaries when ZWSP is used as word separator.
+	spaced := replaceInvisibleWithSpace("hello\u200Bworld")
+	got := Normalize(spaced)
+	if got != "hello world" {
+		t.Errorf("got %q, want %q", got, "hello world")
+	}
+}
+
+func TestNormalize_GreekConfusables(t *testing.T) {
+	// BUG: Greek capital Alpha Α (U+0391) looks identical to Latin A
+	// but is not in confusables.json.
+	tests := map[rune]rune{
+		'\u0391': 'A', // Greek Α → A
+		'\u0392': 'B', // Greek Β → B
+		'\u0395': 'E', // Greek Ε → E
+		'\u0397': 'H', // Greek Η → H
+		'\u0399': 'I', // Greek Ι → I
+		'\u039A': 'K', // Greek Κ → K
+		'\u039C': 'M', // Greek Μ → M
+		'\u039D': 'N', // Greek Ν → N
+		'\u039F': 'O', // Greek Ο → O
+		'\u03A1': 'P', // Greek Ρ → P
+		'\u03A4': 'T', // Greek Τ → T
+		'\u03A5': 'Y', // Greek Υ → Y
+		'\u03A7': 'X', // Greek Χ → X
+		'\u0396': 'Z', // Greek Ζ → Z
+	}
+	for in, want := range tests {
+		got := FoldConfusables(string(in))
+		if got != string(want) {
+			t.Errorf("FoldConfusables(%q U+%04X) = %q, want %q", string(in), in, got, string(want))
+		}
+	}
+}
+
 func TestFoldLeet_Table(t *testing.T) {
 	tests := map[rune]rune{
 		'0': 'o', '1': 'i', '3': 'e', '4': 'a', '5': 's',
