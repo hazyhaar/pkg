@@ -332,6 +332,29 @@ func (ing *Ingester) processPipeline(upload *UploadResult, dossierID, originalTo
 				"sha256", upload.SHA256, "error", err)
 		}
 		result.MarkdownText = md
+
+		// Step 5.5b: re-scan extracted text for injection.
+		// Step 4 scans binary chunks (can miss injections hidden in DOCX XML, PDF streams).
+		// This scans the actual human-readable text after format extraction.
+		if md != "" {
+			textInj := ScanInjection(md)
+			if riskLevel(textInj.Risk) > riskLevel(injResult.Risk) {
+				injResult = textInj
+				result.Injection = injResult
+				if textInj.Risk == "high" {
+					finalState = "flagged"
+					if err := ing.Store.UpdatePieceState(upload.SHA256, dossierID, "flagged"); err != nil {
+						slog.Error("update piece state after text injection", "error", err)
+					}
+					result.State = "flagged"
+					slog.Warn("injection detected in extracted text",
+						"component", "ingester",
+						"sha256", upload.SHA256,
+						"risk", textInj.Risk,
+						"matches", textInj.Matches)
+				}
+			}
+		}
 	}
 
 	// Step 6: enqueue routes (originalToken forwarded for jwt_passthru).

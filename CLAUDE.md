@@ -27,6 +27,7 @@ Package Go partagé de l'écosystème HOROS. Bibliothèque de composants réutil
 | `horosafe` | Sanitization et validation input |
 | `horosembed` | Client embeddings transport-agnostique, vector ops, EmbedFactory (migré depuis chrc) |
 | `idgen` | Génération UUID v7 |
+| `injection` | Détection injection prompt multi-couche — normalize + intent match exact/fuzzy/base64, zero regex |
 | `kit` | Context helpers, endpoint pattern, MCP tool registration |
 | `mcpquic` | Transport QUIC pour MCP (client + server) |
 | `mcprt` | Runtime MCP dynamique (bridge, registry, hot-reload tools) |

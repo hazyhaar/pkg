@@ -2,59 +2,44 @@ package sas_ingester
 
 import (
 	"fmt"
-	"regexp"
-	"strings"
+
+	"github.com/hazyhaar/pkg/injection"
 )
 
 // InjectionResult holds the outcome of prompt injection scanning.
 type InjectionResult struct {
-	Risk     string   `json:"risk"`
-	Matches  []string `json:"matches,omitempty"`
-}
-
-var injectionPatterns = []*regexp.Regexp{
-	// Direct instruction override attempts
-	regexp.MustCompile(`(?i)ignore\s+(all\s+)?(previous|prior|above)\s+(instructions?|prompts?|rules?)`),
-	regexp.MustCompile(`(?i)disregard\s+(all\s+)?(previous|prior|above)\s+(instructions?|prompts?|rules?)`),
-	regexp.MustCompile(`(?i)forget\s+(all\s+)?(previous|prior|above)\s+(instructions?|prompts?|rules?)`),
-
-	// System prompt extraction
-	regexp.MustCompile(`(?i)(reveal|show|print|output|display|repeat)\s+(your\s+)?(system\s+)?(prompt|instructions?|rules?|config)`),
-	regexp.MustCompile(`(?i)what\s+(are|is)\s+your\s+(system\s+)?(prompt|instructions?|rules?)`),
-
-	// Role-play / jailbreak patterns
-	regexp.MustCompile(`(?i)you\s+are\s+now\s+(DAN|evil|unrestricted|unfiltered|jailbroken)`),
-	regexp.MustCompile(`(?i)(pretend|act)\s+(like\s+)?(you\s+are|to\s+be)\s+.{0,30}(without|no)\s+(restrictions?|limits?|rules?|filters?)`),
-	regexp.MustCompile(`(?i)enter\s+(DAN|developer|god|sudo|admin)\s+mode`),
-
-	// Delimiter injection
-	regexp.MustCompile(`(?i)<\|?(system|endof(text|turn)|im_start|im_end)\|?>`),
-	regexp.MustCompile(`(?i)\[INST\]|\[/INST\]|\[SYS(TEM)?\]`),
-
-	// Markdown/HTML injection for rendering attacks
-	regexp.MustCompile(`(?i)<script[^>]*>|javascript\s*:`),
-	regexp.MustCompile(`(?i)on(load|error|click|mouseover)\s*=`),
+	Risk    string   `json:"risk"`
+	Matches []string `json:"matches,omitempty"`
 }
 
 // ScanInjection scans text content for prompt injection patterns.
+// Delegates to the injection package for normalize + intent matching.
 func ScanInjection(text string) *InjectionResult {
-	result := &InjectionResult{Risk: "none"}
-
-	for _, pat := range injectionPatterns {
-		matches := pat.FindAllString(text, 3)
-		for _, m := range matches {
-			result.Matches = append(result.Matches, strings.TrimSpace(m))
-		}
+	r := injection.Scan(text, injection.DefaultIntents())
+	return &InjectionResult{
+		Risk:    r.Risk,
+		Matches: matchStrings(r.Matches),
 	}
+}
 
-	switch {
-	case len(result.Matches) >= 3:
-		result.Risk = "high"
-	case len(result.Matches) >= 1:
-		result.Risk = "medium"
+func matchStrings(matches []injection.Match) []string {
+	out := make([]string, len(matches))
+	for i, m := range matches {
+		out[i] = m.IntentID
 	}
+	return out
+}
 
-	return result
+// StripZeroWidthChars removes zero-width Unicode characters used for steganographic injection.
+// Delegates to injection.StripInvisible which covers a broader set of invisible characters.
+func StripZeroWidthChars(text string) string {
+	return injection.StripInvisible(text)
+}
+
+// HasHomoglyphMixing detects mixed Latin/Cyrillic in single words (visual obfuscation).
+// Delegates to injection.HasHomoglyphMixing.
+func HasHomoglyphMixing(text string) bool {
+	return injection.HasHomoglyphMixing(text)
 }
 
 // ScanChunksInjection scans all chunk files for a piece and returns the worst risk.
@@ -69,9 +54,8 @@ func ScanChunksInjection(chunksDir string, chunkCount int) *InjectionResult {
 }
 
 func scanChunkFile(chunksDir string, idx int, worst *InjectionResult) error {
-	// Read chunk as text — binary files will produce few matches.
 	path := chunksDir + "/" + chunkFileName(idx)
-	data, err := readFileSafe(path, 2*1024*1024) // cap at 2MB text scan
+	data, err := readFileSafe(path, 2*1024*1024)
 	if err != nil {
 		return err
 	}

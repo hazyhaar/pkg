@@ -1,7 +1,7 @@
 # sas_ingester
 
 Responsabilite: Pipeline d'ingestion SAS complet — reception fichier, chunking, metadata, scan securite (ClamAV, zip bomb, polyglot, macro, injection prompt), dedup SHA-256, conversion markdown, routing webhook, TUS resumable upload, et JWT identity avec cutoff.
-Depend de: `github.com/hazyhaar/pkg/idgen`, `github.com/hazyhaar/pkg/observability`, `github.com/hazyhaar/pkg/sas_chunker`, `github.com/hazyhaar/pkg/trace`, `github.com/hazyhaar/pkg/horosafe`, `github.com/hazyhaar/pkg/connectivity`, `github.com/hazyhaar/pkg/kit`, `github.com/modelcontextprotocol/go-sdk/mcp`, `gopkg.in/yaml.v3`
+Depend de: `github.com/hazyhaar/pkg/idgen`, `github.com/hazyhaar/pkg/observability`, `github.com/hazyhaar/pkg/sas_chunker`, `github.com/hazyhaar/pkg/trace`, `github.com/hazyhaar/pkg/horosafe`, `github.com/hazyhaar/pkg/connectivity`, `github.com/hazyhaar/pkg/kit`, `github.com/hazyhaar/pkg/injection`, `github.com/modelcontextprotocol/go-sdk/mcp`, `gopkg.in/yaml.v3`
 Dependants: aucun dans pkg/ (package terminal); externes: cmd/sas_ingester
 Point d'entree: ingester.go (Ingester, pipeline orchestrator)
 Types cles: `Ingester`, `Store`, `Router`, `Config`, `Piece`, `Dossier`, `TusHandler`, `TusUpload`, `IngestResult`, `ScanResult`, `InjectionResult`, `FileMetadata`, `JWTClaims`, `UploadResult`, `OpaquePayload`, `PassthruPayload`, `RoutePending`, `MarkdownConverter`, `PieceMarkdown`
@@ -18,6 +18,7 @@ Ingest(io.Reader, dossierID, ownerSub)
   ├─ Step 4: ScanChunksInjection
   ├─ Step 5: UpdatePieceMetadata → finalState
   ├─ Step 5.5: convertToMarkdown (if MarkdownConverter set, state=ready)
+  ├─ Step 5.5b: ScanInjection on extracted text (re-scan after format extraction)
   ├─ Step 6: EnqueueRoutesWithToken
   └─ Return IngestResult (with MarkdownText if converted)
 ```
@@ -89,6 +90,11 @@ Un usager authentifié (par JWT ou horoskey) peut créer un dossier pour uploade
 - Scan ClamAV via INSTREAM (socket Unix) — pas besoin de filesystem partage
 - **Base64 upload max 10 Mo** — au-dela, retour JSON avec message howto TUS
 - **MarkdownConverter nil = skip** — pas de panic, pas d'erreur
+- **Step 5.5b** : re-scan injection sur texte extrait (pas juste chunks binaires) — si risk upgraye a "high", piece passe en "flagged"
+- **Injection** : `ScanInjection()` delegue a `injection.Scan()` (package `hazyhaar/pkg/injection`). Normalisation multi-couche (NFKD, confusables, leet, invisible strip, markup strip) + intent matching exact/fuzzy/base64. Zero regex.
+- **`StripZeroWidthChars()`** : delegue a `injection.StripInvisible()` (couvre tous les unicode Cf/Cc)
+- **`HasHomoglyphMixing()`** : delegue a `injection.HasHomoglyphMixing()`
+- **Invariant** : tout texte extrait est scanne AVANT stockage/routing
 
 NE PAS:
 - Ne pas passer `ownerSub` apres le cutoff d'identite dans `processPipeline` — c'est un invariant de securite
