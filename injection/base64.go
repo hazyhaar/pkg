@@ -22,14 +22,19 @@ func DecodeBase64Segments(s string) string {
 		if !isBase64Token(tok) {
 			continue
 		}
-		decoded, err := base64.StdEncoding.DecodeString(tok)
+		// Choose encoding based on token characters.
+		enc := base64.StdEncoding
+		if strings.ContainsAny(tok, "-_") {
+			enc = base64.URLEncoding
+		}
+		decoded, err := enc.DecodeString(tok)
 		if err != nil {
 			// Try with padding
 			padded := tok
 			if rem := len(tok) % 4; rem != 0 {
 				padded += strings.Repeat("=", 4-rem)
 			}
-			decoded, err = base64.StdEncoding.DecodeString(padded)
+			decoded, err = enc.DecodeString(padded)
 			if err != nil {
 				continue
 			}
@@ -50,11 +55,12 @@ func DecodeBase64Segments(s string) string {
 	return strings.Join(tokens, " ")
 }
 
-// isBase64Token checks if a string contains only base64 alphabet characters.
+// isBase64Token checks if a string contains only standard or URL-safe base64 alphabet characters.
 func isBase64Token(s string) bool {
 	for _, r := range s {
 		if !((r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') ||
-			(r >= '0' && r <= '9') || r == '+' || r == '/' || r == '=') {
+			(r >= '0' && r <= '9') || r == '+' || r == '/' || r == '=' ||
+			r == '-' || r == '_') {
 			return false
 		}
 	}

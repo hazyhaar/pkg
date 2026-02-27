@@ -92,6 +92,14 @@ func Scan(text string, intents []Intent) *Result {
 			Method:   "structural",
 		})
 	}
+	if hasSuspiciousDelimiters(text) {
+		result.Matches = append(result.Matches, Match{
+			IntentID: "structural.delimiter",
+			Category: "delimiter",
+			Severity: "high",
+			Method:   "structural",
+		})
+	}
 	if hasDangerousMarkup(text) {
 		result.Matches = append(result.Matches, Match{
 			IntentID: "structural.dangerous_markup",
@@ -137,7 +145,43 @@ func Scan(text string, intents []Intent) *Result {
 		}
 	}
 
-	// === 5. Base64 smuggling detection ===
+	// === 5. Zero-width word boundary alternative ===
+	// When invisible chars are used as word separators (instead of spaces),
+	// StripInvisible merges words. Re-scan with invisibles→spaces to catch this.
+	if containsInvisible(text) {
+		spaced := replaceInvisibleWithSpace(text)
+		spacedNorm := Normalize(spaced)
+		if spacedNorm != normalized {
+			for _, intent := range intents {
+				if matched[intent.ID] {
+					continue
+				}
+				if strings.Contains(spacedNorm, intent.Canonical) {
+					result.Matches = append(result.Matches, Match{
+						IntentID: intent.ID,
+						Category: intent.Category,
+						Severity: intent.Severity,
+						Method:   "exact",
+					})
+					matched[intent.ID] = true
+					continue
+				}
+				if len(strings.Fields(intent.Canonical)) >= 2 {
+					if FuzzyContains(spacedNorm, intent.Canonical, 2) {
+						result.Matches = append(result.Matches, Match{
+							IntentID: intent.ID,
+							Category: intent.Category,
+							Severity: intent.Severity,
+							Method:   "fuzzy",
+						})
+						matched[intent.ID] = true
+					}
+				}
+			}
+		}
+	}
+
+	// === 6. Base64 smuggling detection ===
 	decoded := DecodeBase64Segments(text)
 	if decoded != text {
 		decodedNorm := Normalize(decoded)
@@ -169,7 +213,7 @@ func Scan(text string, intents []Intent) *Result {
 		}
 	}
 
-	// === 6. Scoring ===
+	// === 7. Scoring ===
 	score := 0
 	for _, m := range result.Matches {
 		score += severityScore(m.Severity)
@@ -182,6 +226,33 @@ func Scan(text string, intents []Intent) *Result {
 	}
 
 	return result
+}
+
+// containsInvisible reports whether s contains any character that StripInvisible would remove.
+func containsInvisible(s string) bool {
+	for _, r := range s {
+		if unicode.Is(unicode.Cf, r) {
+			return true
+		}
+		if unicode.Is(unicode.Cc, r) && r != '\n' && r != '\t' && r != '\r' {
+			return true
+		}
+	}
+	return false
+}
+
+// replaceInvisibleWithSpace replaces invisible characters with spaces
+// (instead of deleting them) to preserve word boundaries.
+func replaceInvisibleWithSpace(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.Is(unicode.Cf, r) {
+			return ' '
+		}
+		if unicode.Is(unicode.Cc, r) && r != '\n' && r != '\t' && r != '\r' {
+			return ' '
+		}
+		return r
+	}, s)
 }
 
 func severityScore(s string) int {
@@ -197,10 +268,38 @@ func severityScore(s string) int {
 	}
 }
 
+// hasSuspiciousDelimiters detects LLM instruction boundary injection patterns
+// like <|system|>, <<SYS>>, [INST] that attackers use to manipulate model behavior.
+func hasSuspiciousDelimiters(s string) bool {
+	lower := strings.ToLower(s)
+	delimPatterns := []string{
+		"<|system|>", "<|user|>", "<|assistant|>",
+		"<|im_start|>", "<|im_end|>",
+		"<|endoftext|>", "<|begin_of_text|>",
+		"<|start_header_id|>", "<|end_header_id|>",
+		"<<sys>>", "<</sys>>",
+		"[inst]", "[/inst]",
+	}
+	for _, p := range delimPatterns {
+		if strings.Contains(lower, p) {
+			return true
+		}
+	}
+	return false
+}
+
 // hasDangerousMarkup detects HTML/JS patterns that indicate rendering attacks.
 // Checked before StripMarkup to catch <script>, javascript:, onerror= etc.
+// Strips control characters first to prevent null-byte bypass (e.g., "<scr\x00ipt>").
 func hasDangerousMarkup(s string) bool {
-	lower := strings.ToLower(s)
+	// Strip Cc characters (null bytes, etc.) to prevent pattern-splitting bypass.
+	cleaned := strings.Map(func(r rune) rune {
+		if unicode.Is(unicode.Cc, r) {
+			return -1
+		}
+		return r
+	}, s)
+	lower := strings.ToLower(cleaned)
 	dangerousPatterns := []string{
 		"<script", "javascript:", "onerror=", "onload=",
 		"onclick=", "onmouseover=", "<iframe", "<object",
@@ -238,10 +337,10 @@ func isZeroWidth(r rune) bool {
 	return false
 }
 
-// HasHomoglyphMixing detects mixed Latin/Cyrillic in single words (visual obfuscation).
+// HasHomoglyphMixing detects mixed Latin/Cyrillic or Latin/Greek in single words (visual obfuscation).
 func HasHomoglyphMixing(text string) bool {
 	for _, word := range strings.Fields(text) {
-		hasLatin, hasCyrillic := false, false
+		hasLatin, hasCyrillic, hasGreek := false, false, false
 		for _, r := range word {
 			if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') {
 				hasLatin = true
@@ -249,7 +348,10 @@ func HasHomoglyphMixing(text string) bool {
 			if unicode.Is(unicode.Cyrillic, r) {
 				hasCyrillic = true
 			}
-			if hasLatin && hasCyrillic {
+			if unicode.Is(unicode.Greek, r) {
+				hasGreek = true
+			}
+			if hasLatin && (hasCyrillic || hasGreek) {
 				return true
 			}
 		}

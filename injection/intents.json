@@ -32,14 +32,10 @@
   {"id": "agent.tool.en", "canonical": "call the following tool with these parameters", "category": "agent_proxy", "lang": "en", "severity": "high"},
   {"id": "agent.output.en", "canonical": "include this text in your response", "category": "agent_proxy", "lang": "en", "severity": "medium"},
 
-  {"id": "delim.system.en", "canonical": "system", "category": "delimiter", "lang": "en", "severity": "high"},
-  {"id": "delim.inst.en", "canonical": "inst", "category": "delimiter", "lang": "en", "severity": "high"},
-
   {"id": "address.assistant.en", "canonical": "assistant please ignore", "category": "ai_address", "lang": "en", "severity": "medium"},
   {"id": "address.ai.en", "canonical": "dear ai please", "category": "ai_address", "lang": "en", "severity": "medium"},
   {"id": "address.ai2.en", "canonical": "assistant please", "category": "ai_address", "lang": "en", "severity": "medium"},
 
-  {"id": "rendering.script.en", "canonical": "script", "category": "rendering", "lang": "en", "severity": "high"},
-  {"id": "rendering.onerror.en", "canonical": "onerror", "category": "rendering", "lang": "en", "severity": "high"},
-  {"id": "rendering.javascript.en", "canonical": "javascript", "category": "rendering", "lang": "en", "severity": "high"}
+  {"id": "rendering.script_tag.en", "canonical": "script src", "category": "rendering", "lang": "en", "severity": "high"},
+  {"id": "rendering.eval_js.en", "canonical": "eval document cookie", "category": "rendering", "lang": "en", "severity": "high"}
 ]
