@@ -3,6 +3,7 @@
 package injection
 
 import (
+	"sort"
 	"strings"
 	"unicode/utf8"
 )
@@ -73,6 +74,47 @@ func levenshtein(a, b string) int {
 		prev, curr = curr, prev
 	}
 	return prev[lb]
+}
+
+// ReorderMatch checks if text contains a window of words that, when sorted
+// alphabetically, match the sorted words of phrase. Catches word-reordered
+// injections like "instructions previous ignore all".
+// Only returns true when words are actually reordered (not in original order).
+func ReorderMatch(text string, phrase string) bool {
+	words := strings.Fields(text)
+	patternWords := strings.Fields(phrase)
+	pLen := len(patternWords)
+	if pLen < 2 || len(words) < pLen {
+		return false
+	}
+
+	sortedPattern := make([]string, pLen)
+	copy(sortedPattern, patternWords)
+	sort.Strings(sortedPattern)
+	target := strings.Join(sortedPattern, "\x00")
+
+	window := make([]string, pLen)
+	for i := 0; i <= len(words)-pLen; i++ {
+		copy(window, words[i:i+pLen])
+
+		// Skip if already in correct order (caught by exact/fuzzy)
+		inOrder := true
+		for j := range window {
+			if window[j] != patternWords[j] {
+				inOrder = false
+				break
+			}
+		}
+		if inOrder {
+			continue
+		}
+
+		sort.Strings(window)
+		if strings.Join(window, "\x00") == target {
+			return true
+		}
+	}
+	return false
 }
 
 func min3(a, b, c int) int {

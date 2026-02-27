@@ -213,7 +213,66 @@ func Scan(text string, intents []Intent) *Result {
 		}
 	}
 
-	// === 7. Scoring ===
+	// === 7. ROT13 detection ===
+	rot13Norm := Normalize(DecodeROT13(text))
+	if rot13Norm != normalized {
+		for _, intent := range intents {
+			if matched[intent.ID] {
+				continue
+			}
+			if strings.Contains(rot13Norm, intent.Canonical) {
+				result.Matches = append(result.Matches, Match{
+					IntentID: intent.ID,
+					Category: intent.Category,
+					Severity: intent.Severity,
+					Method:   "encoding",
+				})
+				matched[intent.ID] = true
+			}
+		}
+	}
+
+	// === 8. Escape encoding detection (\xHH, %HH, &#DDD;) ===
+	unescaped := DecodeEscapes(text)
+	if unescaped != text {
+		unescapedNorm := Normalize(unescaped)
+		if unescapedNorm != normalized {
+			for _, intent := range intents {
+				if matched[intent.ID] {
+					continue
+				}
+				if strings.Contains(unescapedNorm, intent.Canonical) {
+					result.Matches = append(result.Matches, Match{
+						IntentID: intent.ID,
+						Category: intent.Category,
+						Severity: intent.Severity,
+						Method:   "encoding",
+					})
+					matched[intent.ID] = true
+				}
+			}
+		}
+	}
+
+	// === 9. Word reorder detection ===
+	for _, intent := range intents {
+		if matched[intent.ID] {
+			continue
+		}
+		if len(strings.Fields(intent.Canonical)) >= 3 {
+			if ReorderMatch(normalized, intent.Canonical) {
+				result.Matches = append(result.Matches, Match{
+					IntentID: intent.ID,
+					Category: intent.Category,
+					Severity: intent.Severity,
+					Method:   "reorder",
+				})
+				matched[intent.ID] = true
+			}
+		}
+	}
+
+	// === 10. Scoring ===
 	score := 0
 	for _, m := range result.Matches {
 		score += severityScore(m.Severity)
