@@ -147,7 +147,7 @@ func TestExtend(t *testing.T) {
 	job, _ := q.Claim(ctx)
 
 	// Extend by 500ms — should not reappear after the original 50ms.
-	if err := q.Extend(ctx, job.ID, 500*time.Millisecond); err != nil {
+	if err := q.Extend(ctx, job, 500*time.Millisecond); err != nil {
 		t.Fatal(err)
 	}
 
@@ -156,6 +156,62 @@ func TestExtend(t *testing.T) {
 	job2, _ := q.Claim(ctx)
 	if job2 != nil {
 		t.Fatal("job should still be invisible after extend")
+	}
+}
+
+func TestExtendAfterTimeoutExpired(t *testing.T) {
+	// Extend must fail when the visibility timeout has already expired,
+	// because another consumer may have re-claimed the job in the meantime.
+	db := openDB(t)
+	q := newQ(t, db, vtq.Options{Visibility: 50 * time.Millisecond})
+	ctx := context.Background()
+
+	q.Publish(ctx, "j1", nil)
+
+	// Consumer A claims the job.
+	jobA, _ := q.Claim(ctx)
+	if jobA == nil {
+		t.Fatal("expected a job")
+	}
+
+	// Wait for visibility to expire.
+	time.Sleep(80 * time.Millisecond)
+
+	// Consumer B re-claims the job.
+	jobB, _ := q.Claim(ctx)
+	if jobB == nil {
+		t.Fatal("expected job to reappear after timeout")
+	}
+
+	// Consumer A tries to Extend — it should fail because A is no longer the holder.
+	err := q.Extend(ctx, jobA, 5*time.Second)
+	if !errors.Is(err, vtq.ErrNotHolder) {
+		t.Fatalf("expected ErrNotHolder, got %v", err)
+	}
+
+	// Verify B's visibility window was not corrupted.
+	// The job should still be invisible (B's claim has not expired).
+	jobC, _ := q.Claim(ctx)
+	if jobC != nil {
+		t.Fatal("job should still be invisible under B's claim")
+	}
+}
+
+func TestExtendStillHolder(t *testing.T) {
+	// Extend must succeed when the caller still holds the claim.
+	db := openDB(t)
+	q := newQ(t, db, vtq.Options{Visibility: 500 * time.Millisecond})
+	ctx := context.Background()
+
+	q.Publish(ctx, "j1", nil)
+	job, _ := q.Claim(ctx)
+	if job == nil {
+		t.Fatal("expected a job")
+	}
+
+	// Extend while still holding — should succeed.
+	if err := q.Extend(ctx, job, time.Second); err != nil {
+		t.Fatalf("extend should succeed while holding: %v", err)
 	}
 }
 

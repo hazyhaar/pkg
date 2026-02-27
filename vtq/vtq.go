@@ -35,6 +35,11 @@ import (
 	"time"
 )
 
+// ErrNotHolder is returned by Extend when the caller no longer holds the
+// claim — either because the visibility timeout expired or another consumer
+// re-claimed the job.
+var ErrNotHolder = errors.New("vtq: extend failed, caller is not the current holder")
+
 // Job is a row in the queue.
 type Job struct {
 	ID        string
@@ -164,14 +169,33 @@ func (q *Q) Nack(ctx context.Context, id string) error {
 }
 
 // Extend pushes the visibility timeout forward for a job that needs more
-// processing time (heartbeat pattern).
-func (q *Q) Extend(ctx context.Context, id string, extra time.Duration) error {
-	hideUntil := time.Now().Add(extra).UnixMilli()
-	_, err := q.db.ExecContext(ctx,
-		`UPDATE vtq_jobs SET visible_at = ? WHERE id = ? AND queue = ?`,
-		hideUntil, id, q.opts.Queue,
+// processing time (heartbeat pattern). It returns ErrNotHolder if the
+// visibility timeout has already expired or another consumer re-claimed the
+// job. On success it updates job.VisibleAt so subsequent Extend calls use
+// the correct baseline.
+func (q *Q) Extend(ctx context.Context, job *Job, extra time.Duration) error {
+	now := time.Now()
+	hideUntil := now.Add(extra)
+	res, err := q.db.ExecContext(ctx,
+		`UPDATE vtq_jobs SET visible_at = ?
+		 WHERE id = ? AND queue = ?
+		   AND visible_at = ?
+		   AND visible_at > ?`,
+		hideUntil.UnixMilli(), job.ID, q.opts.Queue,
+		job.VisibleAt.UnixMilli(), now.UnixMilli(),
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrNotHolder
+	}
+	job.VisibleAt = hideUntil
+	return nil
 }
 
 // Purge deletes all jobs in the queue.
