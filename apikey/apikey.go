@@ -39,7 +39,7 @@ type Store struct {
 
 // OpenStore opens (or creates) the SQLite database at path and runs migrations.
 func OpenStore(path string) (*Store, error) {
-	db, err := sql.Open("sqlite-trace", path+"?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=ON")
+	db, err := sql.Open("sqlite-trace", path+"?_txlock=immediate&_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=synchronous(NORMAL)")
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
 	}

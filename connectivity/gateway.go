@@ -9,8 +9,9 @@ import (
 	"strings"
 )
 
-// maxGatewayRequestBody caps incoming request bodies (10 MiB).
-const maxGatewayRequestBody int64 = 10 << 20
+// maxGatewayRequestBody caps incoming request bodies (16 MiB).
+// Must exceed base64-encoded MaxBase64Bytes (10 MB raw → ~13.3 MB base64 + JSON wrapper).
+const maxGatewayRequestBody int64 = 16 << 20
 
 // Gateway returns an http.Handler that exposes local handlers over HTTP.
 // Incoming POST requests are dispatched to the matching local handler:

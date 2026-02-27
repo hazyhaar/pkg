@@ -39,7 +39,7 @@ func main() {
 
 	// --- Trace store (separate DB to avoid write contention, raw "sqlite" to avoid recursion) ---
 	traceDBPath := filepath.Join(filepath.Dir(cfg.DBPath), "sas_traces.db")
-	traceDB, err := sql.Open("sqlite", traceDBPath+"?_journal_mode=WAL&_busy_timeout=5000")
+	traceDB, err := sql.Open("sqlite", traceDBPath+"?_txlock=immediate&_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=synchronous(NORMAL)")
 	if err != nil {
 		slog.Error("trace db", "error", err)
 		os.Exit(1)
@@ -55,7 +55,7 @@ func main() {
 
 	// --- Observability DB (separate from app DB to avoid write contention) ---
 	obsDBPath := filepath.Join(filepath.Dir(cfg.DBPath), "observability.db")
-	obsDB, err := sql.Open("sqlite", obsDBPath+"?_journal_mode=WAL&_busy_timeout=5000")
+	obsDB, err := sql.Open("sqlite", obsDBPath+"?_txlock=immediate&_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=synchronous(NORMAL)")
 	if err != nil {
 		slog.Error("observability db", "error", err)
 		os.Exit(1)

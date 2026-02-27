@@ -134,6 +134,12 @@ func (h *TusHandler) Complete(uploadID string) (*UploadResult, error) {
 		return nil, fmt.Errorf("upload incomplete: %d/%d bytes", u.OffsetBytes, u.TotalSize)
 	}
 
+	// Ensure dossier exists in sas_ingester DB (FK for pieces).
+	// Same idempotent logic as Ingest() pre-cutoff.
+	if err := h.store.EnsureDossier(u.DossierID, u.OwnerJWTSub); err != nil {
+		return nil, fmt.Errorf("ensure dossier: %w", err)
+	}
+
 	partialPath := filepath.Join(u.ChunkDir, "partial.bin")
 
 	// Hash the complete file.

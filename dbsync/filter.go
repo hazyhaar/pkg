@@ -82,22 +82,12 @@ func ProduceSnapshot(srcDB *sql.DB, dstPath string, spec FilterSpec) (*SnapshotM
 	}
 
 	// Step 2: Open the copy with the plain driver (no trace recursion).
-	copyDB, err := sql.Open("sqlite", tmpPath)
+	// foreign_keys(0) intentional: filtering drops tables, FK constraints would block.
+	copyDB, err := sql.Open("sqlite", tmpPath+"?_txlock=immediate&_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(0)&_pragma=synchronous(NORMAL)")
 	if err != nil {
 		return nil, fmt.Errorf("dbsync: open copy: %w", err)
 	}
 	defer copyDB.Close()
-
-	// Pragmas for the temporary copy.
-	for _, p := range []string{
-		"PRAGMA journal_mode=WAL",
-		"PRAGMA foreign_keys=OFF",
-		"PRAGMA busy_timeout=5000",
-	} {
-		if _, err := copyDB.Exec(p); err != nil {
-			return nil, fmt.Errorf("dbsync: pragma: %w", err)
-		}
-	}
 
 	// Build whitelist of allowed tables.
 	allowed := buildWhitelist(spec)
