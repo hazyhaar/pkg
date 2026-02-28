@@ -1,6 +1,6 @@
-// CLAUDE:SUMMARY API key lifecycle: generate, resolve, revoke, list. SHA-256 hashed storage, service-scoped, rate-limited.
+// CLAUDE:SUMMARY API key lifecycle: generate, resolve, revoke, list. SHA-256 hashed storage, service-scoped, dossier-scoped, rate-limited.
 // CLAUDE:DEPENDS modernc.org/sqlite, github.com/hazyhaar/pkg/trace
-// CLAUDE:EXPORTS Store, Key, Generate, Resolve, Revoke, List
+// CLAUDE:EXPORTS Store, Key, Generate, Resolve, Revoke, List, ListByDossier, Option, WithDossier
 package apikey
 
 import (
@@ -27,9 +27,25 @@ type Key struct {
 	Name      string   `json:"name"`       // human label ("Mon LLM Claude", "Script backup")
 	Services  []string `json:"services"`   // authorized services ["sas_ingester", "veille"]
 	RateLimit int      `json:"rate_limit"` // requests per minute (0 = unlimited)
+	DossierID string   `json:"dossier_id,omitempty"` // scoped dossier (empty = legacy/wildcard)
 	CreatedAt string   `json:"created_at"`
 	ExpiresAt string   `json:"expires_at,omitempty"` // empty = never expires
 	RevokedAt string   `json:"revoked_at,omitempty"` // non-empty = revoked
+}
+
+// IsDossierScoped returns true if this key is bound to a specific dossier.
+func (k *Key) IsDossierScoped() bool { return k.DossierID != "" }
+
+// Option configures optional parameters for Generate.
+type Option func(*generateOpts)
+
+type generateOpts struct {
+	dossierID string
+}
+
+// WithDossier binds the generated key to a specific dossier.
+func WithDossier(dossierID string) Option {
+	return func(o *generateOpts) { o.dossierID = dossierID }
 }
 
 // Store wraps an SQLite database for API key management.
@@ -89,8 +105,15 @@ CREATE INDEX IF NOT EXISTS idx_api_keys_hash     ON api_keys(hash);
 CREATE INDEX IF NOT EXISTS idx_api_keys_owner    ON api_keys(owner_id);
 CREATE INDEX IF NOT EXISTS idx_api_keys_prefix   ON api_keys(prefix);
 `
-	_, err := s.db.Exec(ddl)
-	return err
+	if _, err := s.db.Exec(ddl); err != nil {
+		return err
+	}
+
+	// Migration: add dossier_id column (idempotent).
+	s.db.Exec(`ALTER TABLE api_keys ADD COLUMN dossier_id TEXT NOT NULL DEFAULT ''`)
+	s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_api_keys_dossier ON api_keys(dossier_id)`)
+
+	return nil
 }
 
 // Generate creates a new API key, stores its hash, and returns the clear key
@@ -98,12 +121,17 @@ CREATE INDEX IF NOT EXISTS idx_api_keys_prefix   ON api_keys(prefix);
 //
 // Format: "hk_" + 32 random bytes hex = 67 chars total.
 // Prefix stored: first 8 chars ("hk_7f3a9") for identification without exposure.
-func (s *Store) Generate(id, ownerID, name string, services []string, rateLimit int) (clearKey string, key *Key, err error) {
+func (s *Store) Generate(id, ownerID, name string, services []string, rateLimit int, opts ...Option) (clearKey string, key *Key, err error) {
 	if ownerID == "" {
 		return "", nil, fmt.Errorf("owner_id is required")
 	}
 	if id == "" {
 		return "", nil, fmt.Errorf("id is required")
+	}
+
+	var o generateOpts
+	for _, fn := range opts {
+		fn(&o)
 	}
 
 	// Generate 32 random bytes → 64 hex chars.
@@ -135,13 +163,14 @@ func (s *Store) Generate(id, ownerID, name string, services []string, rateLimit 
 		Name:      name,
 		Services:  services,
 		RateLimit: rateLimit,
+		DossierID: o.dossierID,
 		CreatedAt: now,
 	}
 
 	_, err = s.db.Exec(
-		`INSERT INTO api_keys (id, prefix, hash, owner_id, name, services, rate_limit, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		key.ID, key.Prefix, key.Hash, key.OwnerID, key.Name, svcJSON, key.RateLimit, key.CreatedAt,
+		`INSERT INTO api_keys (id, prefix, hash, owner_id, name, services, rate_limit, dossier_id, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		key.ID, key.Prefix, key.Hash, key.OwnerID, key.Name, svcJSON, key.RateLimit, key.DossierID, key.CreatedAt,
 	)
 	if err != nil {
 		return "", nil, fmt.Errorf("insert key: %w", err)
@@ -162,9 +191,9 @@ func (s *Store) Resolve(clearKey string) (*Key, error) {
 	var k Key
 	var svcJSON string
 	err := s.db.QueryRow(
-		`SELECT id, prefix, hash, owner_id, name, services, rate_limit, created_at, expires_at, revoked_at
+		`SELECT id, prefix, hash, owner_id, name, services, rate_limit, dossier_id, created_at, expires_at, revoked_at
 		 FROM api_keys WHERE hash = ?`, hash,
-	).Scan(&k.ID, &k.Prefix, &k.Hash, &k.OwnerID, &k.Name, &svcJSON, &k.RateLimit, &k.CreatedAt, &k.ExpiresAt, &k.RevokedAt)
+	).Scan(&k.ID, &k.Prefix, &k.Hash, &k.OwnerID, &k.Name, &svcJSON, &k.RateLimit, &k.DossierID, &k.CreatedAt, &k.ExpiresAt, &k.RevokedAt)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("unknown key")
 	}
@@ -208,7 +237,7 @@ func (s *Store) Revoke(keyID string) error {
 // List returns all API keys for an owner (excluding the hash).
 func (s *Store) List(ownerID string) ([]*Key, error) {
 	rows, err := s.db.Query(
-		`SELECT id, prefix, owner_id, name, services, rate_limit, created_at, expires_at, revoked_at
+		`SELECT id, prefix, owner_id, name, services, rate_limit, dossier_id, created_at, expires_at, revoked_at
 		 FROM api_keys WHERE owner_id = ? ORDER BY created_at DESC, rowid DESC`, ownerID,
 	)
 	if err != nil {
@@ -220,7 +249,31 @@ func (s *Store) List(ownerID string) ([]*Key, error) {
 	for rows.Next() {
 		var k Key
 		var svcJSON string
-		if err := rows.Scan(&k.ID, &k.Prefix, &k.OwnerID, &k.Name, &svcJSON, &k.RateLimit, &k.CreatedAt, &k.ExpiresAt, &k.RevokedAt); err != nil {
+		if err := rows.Scan(&k.ID, &k.Prefix, &k.OwnerID, &k.Name, &svcJSON, &k.RateLimit, &k.DossierID, &k.CreatedAt, &k.ExpiresAt, &k.RevokedAt); err != nil {
+			return nil, err
+		}
+		k.Services = parseServices(svcJSON)
+		keys = append(keys, &k)
+	}
+	return keys, rows.Err()
+}
+
+// ListByDossier returns all active (non-revoked) keys scoped to a specific dossier.
+func (s *Store) ListByDossier(dossierID string) ([]*Key, error) {
+	rows, err := s.db.Query(
+		`SELECT id, prefix, owner_id, name, services, rate_limit, dossier_id, created_at, expires_at, revoked_at
+		 FROM api_keys WHERE dossier_id = ? AND revoked_at = '' ORDER BY created_at DESC, rowid DESC`, dossierID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var keys []*Key
+	for rows.Next() {
+		var k Key
+		var svcJSON string
+		if err := rows.Scan(&k.ID, &k.Prefix, &k.OwnerID, &k.Name, &svcJSON, &k.RateLimit, &k.DossierID, &k.CreatedAt, &k.ExpiresAt, &k.RevokedAt); err != nil {
 			return nil, err
 		}
 		k.Services = parseServices(svcJSON)

@@ -1,6 +1,6 @@
 # apikey
 
-Responsabilite: Cycle de vie des cles API (horoskeys) — generation, resolution (SHA-256), revocation, expiration, scoping services, rate limit.
+Responsabilite: Cycle de vie des cles API (horoskeys) — generation, resolution (SHA-256), revocation, expiration, scoping services, scoping dossier, rate limit.
 Depend de: `github.com/hazyhaar/pkg/trace` (driver sqlite-trace)
 Dependants: `sas_ingester` (via KeyResolver callback), `siftrag` (via OpenStoreWithDB, X-API-Key middleware), binaires (cmd/*)
 Point d'entree: apikey.go
@@ -19,13 +19,15 @@ Types cles: `Store`, `Key`
 |---------|------|
 | `OpenStore(path)` | Ouvre/cree la DB SQLite, run migrations |
 | `OpenStoreWithDB(db)` | Wraps un `*sql.DB` existant (DB partagee) |
-| `Generate(id, ownerID, name, services, rateLimit)` | Genere une cle, retourne (clearKey, *Key, error) |
+| `Generate(id, ownerID, name, services, rateLimit, opts...)` | Genere une cle, retourne (clearKey, *Key, error). Options: `WithDossier(dossierID)` |
 | `Resolve(clearKey)` | Valide et retourne le `*Key` — verifie revocation + expiration |
 | `Revoke(keyID)` | Revoque une cle (irreversible) |
 | `List(ownerID)` | Liste les cles d'un owner (sans hash) |
+| `ListByDossier(dossierID)` | Liste les cles actives scopees a un dossier |
 | `SetExpiry(keyID, expiresAt)` | Definit/modifie l'expiration |
 | `UpdateServices(keyID, services)` | Modifie les services autorises (pas de rotation de cle) |
 | `HasService(service)` | Verifie si une cle a acces a un service (nil = tous) |
+| `IsDossierScoped()` | Retourne true si la cle est liee a un dossier specifique |
 
 ## Integration avec sas_ingester
 
@@ -47,6 +49,7 @@ CREATE TABLE api_keys (
     id TEXT PRIMARY KEY, prefix TEXT NOT NULL, hash TEXT NOT NULL UNIQUE,
     owner_id TEXT NOT NULL, name TEXT NOT NULL DEFAULT '',
     services TEXT NOT NULL DEFAULT '[]', rate_limit INTEGER NOT NULL DEFAULT 0,
+    dossier_id TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL, expires_at TEXT NOT NULL DEFAULT '',
     revoked_at TEXT NOT NULL DEFAULT ''
 );
@@ -59,6 +62,8 @@ CREATE TABLE api_keys (
 - `Services` vide (`[]` ou nil) = acces a tous les services
 - Double revocation = erreur (idempotence evitee volontairement)
 - `HasService` sur cle sans services = true (wildcard)
+- `DossierID = ""` = cle legacy (acces a tous les dossiers du user, comportement existant)
+- `DossierID != ""` = cle scopee (acces limite a un seul dossier)
 
 NE PAS:
 - Ne pas stocker ou logger la cle en clair — seul le SHA-256 est persiste
