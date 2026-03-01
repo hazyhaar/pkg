@@ -1,6 +1,6 @@
 // CLAUDE:SUMMARY API key lifecycle: generate, resolve, revoke, list. SHA-256 hashed storage, service-scoped, dossier-scoped, rate-limited.
 // CLAUDE:DEPENDS modernc.org/sqlite, github.com/hazyhaar/pkg/trace
-// CLAUDE:EXPORTS Store, Key, Generate, Resolve, Revoke, List, ListByDossier, Option, WithDossier
+// CLAUDE:EXPORTS Store, Key, Generate, Resolve, Revoke, List, ListByDossier, Count, Option, WithDossier, StoreOption, WithMaxKeys, WithAudit, AuditFunc
 package apikey
 
 import (
@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -48,18 +49,44 @@ func WithDossier(dossierID string) Option {
 	return func(o *generateOpts) { o.dossierID = dossierID }
 }
 
+// AuditFunc is called after successful key operations with the event name,
+// key ID, and owner ID. For Revoke, ownerID is empty (not looked up).
+type AuditFunc func(event, keyID, ownerID string)
+
+// StoreOption configures store-level behavior. Distinct from Option (which
+// configures Generate).
+type StoreOption func(*Store)
+
+// WithMaxKeys sets the maximum number of non-revoked keys per owner.
+// 0 means unlimited (default).
+func WithMaxKeys(n int) StoreOption {
+	return func(s *Store) { s.maxKeys = n }
+}
+
+// WithAudit registers a hook called after successful Generate, Resolve, and
+// Revoke operations.
+func WithAudit(fn AuditFunc) StoreOption {
+	return func(s *Store) { s.auditFn = fn }
+}
+
 // Store wraps an SQLite database for API key management.
 type Store struct {
-	db *sql.DB
+	db      *sql.DB
+	owned   bool      // true if we opened the DB (OpenStore), false if shared (OpenStoreWithDB)
+	maxKeys int       // max non-revoked keys per owner; 0 = unlimited
+	auditFn AuditFunc // optional audit hook
 }
 
 // OpenStore opens (or creates) the SQLite database at path and runs migrations.
-func OpenStore(path string) (*Store, error) {
+func OpenStore(path string, opts ...StoreOption) (*Store, error) {
 	db, err := sql.Open("sqlite-trace", path+"?_txlock=immediate&_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=synchronous(NORMAL)")
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
 	}
-	s := &Store{db: db}
+	s := &Store{db: db, owned: true}
+	for _, o := range opts {
+		o(s)
+	}
 	if err := s.migrate(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
@@ -68,9 +95,13 @@ func OpenStore(path string) (*Store, error) {
 }
 
 // OpenStoreWithDB wraps an existing *sql.DB (e.g. shared with another service).
-// Runs migrations on the provided DB.
-func OpenStoreWithDB(db *sql.DB) (*Store, error) {
-	s := &Store{db: db}
+// Runs migrations on the provided DB. Close() on the returned Store is a no-op
+// to avoid closing the shared DB.
+func OpenStoreWithDB(db *sql.DB, opts ...StoreOption) (*Store, error) {
+	s := &Store{db: db, owned: false}
+	for _, o := range opts {
+		o(s)
+	}
 	if err := s.migrate(); err != nil {
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
@@ -80,13 +111,37 @@ func OpenStoreWithDB(db *sql.DB) (*Store, error) {
 // DB returns the underlying *sql.DB.
 func (s *Store) DB() *sql.DB { return s.db }
 
-// Close closes the underlying database connection.
-func (s *Store) Close() error { return s.db.Close() }
+// Close closes the underlying database connection. If the store was created
+// via OpenStoreWithDB (shared DB), Close is a no-op to avoid breaking other
+// consumers of the same *sql.DB.
+func (s *Store) Close() error {
+	if !s.owned {
+		return nil
+	}
+	return s.db.Close()
+}
+
+// Count returns the number of non-revoked keys for the given owner.
+func (s *Store) Count(ownerID string) (int, error) {
+	var n int
+	err := s.db.QueryRow(
+		`SELECT COUNT(*) FROM api_keys WHERE owner_id = ? AND revoked_at = ''`,
+		ownerID,
+	).Scan(&n)
+	return n, err
+}
+
+// audit calls the audit hook if one was registered via WithAudit.
+func (s *Store) audit(event, keyID, ownerID string) {
+	if s.auditFn != nil {
+		s.auditFn(event, keyID, ownerID)
+	}
+}
 
 func (s *Store) migrate() error {
-	if _, err := s.db.Exec(`PRAGMA foreign_keys = ON`); err != nil {
-		return fmt.Errorf("enable foreign keys: %w", err)
-	}
+	// NOTE: pragmas (foreign_keys, WAL, busy_timeout, synchronous) are set via
+	// DSN _pragma= parameters, NOT via db.Exec. db.Exec only touches one
+	// connection in the pool and is unreliable with sql.DB connection pooling.
 	const ddl = `
 CREATE TABLE IF NOT EXISTS api_keys (
     id          TEXT PRIMARY KEY,
@@ -109,8 +164,12 @@ CREATE INDEX IF NOT EXISTS idx_api_keys_prefix   ON api_keys(prefix);
 		return err
 	}
 
-	// Migration: add dossier_id column (idempotent).
-	s.db.Exec(`ALTER TABLE api_keys ADD COLUMN dossier_id TEXT NOT NULL DEFAULT ''`)
+	// Migration: add dossier_id column (idempotent — ignore "duplicate column" error).
+	if _, err := s.db.Exec(`ALTER TABLE api_keys ADD COLUMN dossier_id TEXT NOT NULL DEFAULT ''`); err != nil {
+		if !strings.Contains(err.Error(), "duplicate column") {
+			return fmt.Errorf("add dossier_id column: %w", err)
+		}
+	}
 	s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_api_keys_dossier ON api_keys(dossier_id)`)
 
 	return nil
@@ -127,6 +186,17 @@ func (s *Store) Generate(id, ownerID, name string, services []string, rateLimit 
 	}
 	if id == "" {
 		return "", nil, fmt.Errorf("id is required")
+	}
+
+	// Enforce per-user key limit if configured.
+	if s.maxKeys > 0 {
+		n, err := s.Count(ownerID)
+		if err != nil {
+			return "", nil, fmt.Errorf("count keys: %w", err)
+		}
+		if n >= s.maxKeys {
+			return "", nil, fmt.Errorf("key limit reached: owner %s has %d keys (limit %d)", ownerID, n, s.maxKeys)
+		}
 	}
 
 	var o generateOpts
@@ -147,10 +217,10 @@ func (s *Store) Generate(id, ownerID, name string, services []string, rateLimit 
 	// Prefix for identification.
 	prefix := clearKey[:8] // "hk_7f3a9"
 
-	// Serialize services.
-	svcJSON := "[]"
-	if len(services) > 0 {
-		svcJSON = `["` + strings.Join(services, `","`) + `"]`
+	// Serialize services via encoding/json for safe escaping.
+	svcJSON, err := marshalServices(services)
+	if err != nil {
+		return "", nil, fmt.Errorf("marshal services: %w", err)
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
@@ -176,6 +246,7 @@ func (s *Store) Generate(id, ownerID, name string, services []string, rateLimit 
 		return "", nil, fmt.Errorf("insert key: %w", err)
 	}
 
+	s.audit("generate", key.ID, key.OwnerID)
 	return clearKey, key, nil
 }
 
@@ -217,6 +288,7 @@ func (s *Store) Resolve(clearKey string) (*Key, error) {
 	// Parse services.
 	k.Services = parseServices(svcJSON)
 
+	s.audit("resolve", k.ID, k.OwnerID)
 	return &k, nil
 }
 
@@ -231,6 +303,7 @@ func (s *Store) Revoke(keyID string) error {
 	if n == 0 {
 		return fmt.Errorf("key not found or already revoked: %s", keyID)
 	}
+	s.audit("revoke", keyID, "")
 	return nil
 }
 
@@ -283,19 +356,35 @@ func (s *Store) ListByDossier(dossierID string) ([]*Key, error) {
 }
 
 // SetExpiry sets or clears the expiration date for a key.
+// Returns an error if the key does not exist or is revoked.
 func (s *Store) SetExpiry(keyID string, expiresAt string) error {
-	_, err := s.db.Exec(`UPDATE api_keys SET expires_at = ? WHERE id = ?`, expiresAt, keyID)
-	return err
+	res, err := s.db.Exec(`UPDATE api_keys SET expires_at = ? WHERE id = ? AND revoked_at = ''`, expiresAt, keyID)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("key not found or revoked: %s", keyID)
+	}
+	return nil
 }
 
 // UpdateServices updates the authorized services for a key (no key rotation needed).
+// Returns an error if the key does not exist or is revoked.
 func (s *Store) UpdateServices(keyID string, services []string) error {
-	svcJSON := "[]"
-	if len(services) > 0 {
-		svcJSON = `["` + strings.Join(services, `","`) + `"]`
+	svcJSON, err := marshalServices(services)
+	if err != nil {
+		return fmt.Errorf("marshal services: %w", err)
 	}
-	_, err := s.db.Exec(`UPDATE api_keys SET services = ? WHERE id = ?`, svcJSON, keyID)
-	return err
+	res, err := s.db.Exec(`UPDATE api_keys SET services = ? WHERE id = ? AND revoked_at = ''`, svcJSON, keyID)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("key not found or revoked: %s", keyID)
+	}
+	return nil
 }
 
 // HasService checks if a resolved key is authorized for a given service.
@@ -317,25 +406,26 @@ func hashKey(clearKey string) string {
 	return hex.EncodeToString(h[:])
 }
 
+// marshalServices serializes a service list to JSON using encoding/json.
+func marshalServices(services []string) (string, error) {
+	if len(services) == 0 {
+		return "[]", nil
+	}
+	b, err := json.Marshal(services)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
 // parseServices parses a JSON array string like `["a","b"]` into a slice.
 func parseServices(s string) []string {
 	if s == "" || s == "[]" {
 		return nil
 	}
-	// Simple parser for ["a","b","c"] — no external JSON dependency needed.
-	s = strings.TrimPrefix(s, "[")
-	s = strings.TrimSuffix(s, "]")
-	if s == "" {
+	var result []string
+	if err := json.Unmarshal([]byte(s), &result); err != nil {
 		return nil
-	}
-	parts := strings.Split(s, ",")
-	result := make([]string, 0, len(parts))
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		p = strings.Trim(p, `"`)
-		if p != "" {
-			result = append(result, p)
-		}
 	}
 	return result
 }

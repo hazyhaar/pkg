@@ -1,6 +1,8 @@
 package apikey
 
 import (
+	"database/sql"
+	"encoding/json"
 	"os"
 	"strings"
 	"testing"
@@ -359,5 +361,378 @@ func TestList_IncludesDossierID(t *testing.T) {
 	}
 	if !found {
 		t.Error("List should include dossier_id for scoped keys")
+	}
+}
+
+// ─── AUDIT TESTS — RED FIRST ───────────────────────────────────────────────
+
+// TestAudit_ServiceNameWithQuote tests that service names containing quotes
+// are stored and retrieved correctly (JSON injection vector).
+func TestAudit_ServiceNameWithQuote(t *testing.T) {
+	s := tempStore(t)
+
+	svcWithQuote := `my"service`
+	clearKey, key, err := s.Generate("key_AQ1", "owner_AQ", "Quoted", []string{svcWithQuote}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(key.Services) != 1 || key.Services[0] != svcWithQuote {
+		t.Errorf("Generate returned Services = %v, want [%q]", key.Services, svcWithQuote)
+	}
+
+	// Resolve and check round-trip.
+	resolved, err := s.Resolve(clearKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resolved.Services) != 1 || resolved.Services[0] != svcWithQuote {
+		t.Errorf("Resolve returned Services = %v, want [%q]", resolved.Services, svcWithQuote)
+	}
+
+	// The stored JSON should be valid.
+	rows, err := s.db.Query(`SELECT services FROM api_keys WHERE id = ?`, "key_AQ1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	if rows.Next() {
+		var raw string
+		rows.Scan(&raw)
+		var parsed []string
+		if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+			t.Errorf("stored JSON is invalid: %q — json.Unmarshal error: %v", raw, err)
+		}
+	}
+}
+
+// TestAudit_ServiceNameWithComma tests that service names containing commas
+// are stored and retrieved correctly.
+func TestAudit_ServiceNameWithComma(t *testing.T) {
+	s := tempStore(t)
+
+	svcWithComma := "svc,evil"
+	clearKey, _, err := s.Generate("key_AC1", "owner_AC", "Comma", []string{svcWithComma}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resolved, err := s.Resolve(clearKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resolved.Services) != 1 {
+		t.Errorf("Resolve returned %d services, want 1 — got %v", len(resolved.Services), resolved.Services)
+	}
+	if len(resolved.Services) > 0 && resolved.Services[0] != svcWithComma {
+		t.Errorf("Resolve returned Services[0] = %q, want %q", resolved.Services[0], svcWithComma)
+	}
+}
+
+// TestAudit_GenerateDuplicateID tests that generating with a duplicate ID returns an error.
+func TestAudit_GenerateDuplicateID(t *testing.T) {
+	s := tempStore(t)
+
+	_, _, err := s.Generate("key_DUP", "owner_D", "First", nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err = s.Generate("key_DUP", "owner_D", "Second", nil, 0)
+	if err == nil {
+		t.Error("expected error for duplicate ID, got nil")
+	}
+}
+
+// TestAudit_SetExpiryNonExistent tests that SetExpiry on a non-existent key returns an error.
+func TestAudit_SetExpiryNonExistent(t *testing.T) {
+	s := tempStore(t)
+
+	err := s.SetExpiry("nonexistent_key", time.Now().UTC().Add(time.Hour).Format(time.RFC3339))
+	if err == nil {
+		t.Error("expected error for SetExpiry on non-existent key, got nil")
+	}
+}
+
+// TestAudit_UpdateServicesNonExistent tests that UpdateServices on a non-existent key returns an error.
+func TestAudit_UpdateServicesNonExistent(t *testing.T) {
+	s := tempStore(t)
+
+	err := s.UpdateServices("nonexistent_key", []string{"a"})
+	if err == nil {
+		t.Error("expected error for UpdateServices on non-existent key, got nil")
+	}
+}
+
+// TestAudit_SetExpiryOnRevokedKey tests that SetExpiry on a revoked key returns an error.
+func TestAudit_SetExpiryOnRevokedKey(t *testing.T) {
+	s := tempStore(t)
+
+	_, _, err := s.Generate("key_REV_EXP", "owner_RE", "Revoked", nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Revoke("key_REV_EXP"); err != nil {
+		t.Fatal(err)
+	}
+
+	err = s.SetExpiry("key_REV_EXP", time.Now().UTC().Add(time.Hour).Format(time.RFC3339))
+	if err == nil {
+		t.Error("expected error for SetExpiry on revoked key, got nil")
+	}
+}
+
+// TestAudit_UpdateServicesOnRevokedKey tests that UpdateServices on a revoked key returns an error.
+func TestAudit_UpdateServicesOnRevokedKey(t *testing.T) {
+	s := tempStore(t)
+
+	_, _, err := s.Generate("key_REV_SVC", "owner_RS", "Revoked", []string{"a"}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Revoke("key_REV_SVC"); err != nil {
+		t.Fatal(err)
+	}
+
+	err = s.UpdateServices("key_REV_SVC", []string{"a", "b"})
+	if err == nil {
+		t.Error("expected error for UpdateServices on revoked key, got nil")
+	}
+}
+
+// TestAudit_GenerateEmptyID tests that Generate rejects empty ID.
+func TestAudit_GenerateEmptyID(t *testing.T) {
+	s := tempStore(t)
+
+	_, _, err := s.Generate("", "owner_E", "No ID", nil, 0)
+	if err == nil {
+		t.Error("expected error for empty ID")
+	}
+}
+
+// TestAudit_GenerateEmptyOwner tests that Generate rejects empty ownerID.
+func TestAudit_GenerateEmptyOwner(t *testing.T) {
+	s := tempStore(t)
+
+	_, _, err := s.Generate("key_EO", "", "No Owner", nil, 0)
+	if err == nil {
+		t.Error("expected error for empty ownerID")
+	}
+}
+
+// TestAudit_MigrateIdempotent tests that calling migrate multiple times is safe.
+func TestAudit_MigrateIdempotent(t *testing.T) {
+	s := tempStore(t)
+
+	// Second migration should not fail.
+	if err := s.migrate(); err != nil {
+		t.Fatalf("second migrate failed: %v", err)
+	}
+}
+
+// TestAudit_OpenStoreWithDB tests the shared DB path.
+func TestAudit_OpenStoreWithDB(t *testing.T) {
+	f, err := os.CreateTemp("", "apikey_shared_*.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := f.Name()
+	f.Close()
+	t.Cleanup(func() { os.Remove(path) })
+
+	db, err := sql.Open("sqlite-trace", path+"?_txlock=immediate&_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=synchronous(NORMAL)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	store, err := OpenStoreWithDB(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Generate and resolve should work.
+	clearKey, _, err := store.Generate("key_SDB1", "owner_SDB", "Shared", nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = store.Resolve(clearKey)
+	if err != nil {
+		t.Fatalf("Resolve on shared DB store failed: %v", err)
+	}
+}
+
+// TestAudit_PragmaExecRemoved verifies that migrate() does not rely on
+// PRAGMA via db.Exec (which only touches one connection in the pool).
+// This is a convention check — pragmas must be set via DSN _pragma=.
+func TestAudit_PragmaExecRemoved(t *testing.T) {
+	// Read the source and check for PRAGMA via Exec in migrate.
+	src, err := os.ReadFile("apikey.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(src), `db.Exec`) && strings.Contains(string(src), "PRAGMA") {
+		t.Error("migrate() should not use db.Exec(\"PRAGMA ...\") — use _pragma= in DSN instead")
+	}
+}
+
+// TestAudit_CloseSharedDBSafe verifies that Close() on a store created via
+// OpenStoreWithDB does NOT close the underlying shared DB.
+func TestAudit_CloseSharedDBSafe(t *testing.T) {
+	f, err := os.CreateTemp("", "apikey_shared_close_*.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := f.Name()
+	f.Close()
+	t.Cleanup(func() { os.Remove(path) })
+
+	db, err := sql.Open("sqlite-trace", path+"?_txlock=immediate&_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=synchronous(NORMAL)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	store, err := OpenStoreWithDB(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Close the store — should NOT close the shared DB.
+	if err := store.Close(); err != nil {
+		t.Fatalf("store.Close() returned error: %v", err)
+	}
+
+	// The original DB must still be usable.
+	if err := db.Ping(); err != nil {
+		t.Fatalf("shared DB unusable after store.Close(): %v", err)
+	}
+}
+
+// TestAudit_Count verifies that Count returns the number of non-revoked keys for an owner.
+func TestAudit_Count(t *testing.T) {
+	s := tempStore(t)
+
+	// Generate 3 keys for the same owner.
+	s.Generate("key_C1", "owner_count", "Key 1", nil, 0)
+	s.Generate("key_C2", "owner_count", "Key 2", nil, 0)
+	s.Generate("key_C3", "owner_count", "Key 3", nil, 0)
+
+	n, err := s.Count("owner_count")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 3 {
+		t.Errorf("Count = %d, want 3", n)
+	}
+
+	// Revoke one — count should drop to 2.
+	if err := s.Revoke("key_C2"); err != nil {
+		t.Fatal(err)
+	}
+	n, err = s.Count("owner_count")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 {
+		t.Errorf("Count after revoke = %d, want 2", n)
+	}
+
+	// Different owner should be 0.
+	n, err = s.Count("other_owner_count")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Errorf("Count for other owner = %d, want 0", n)
+	}
+}
+
+// TestAudit_MaxKeysLimit verifies that WithMaxKeys limits the number of keys per owner.
+func TestAudit_MaxKeysLimit(t *testing.T) {
+	f, err := os.CreateTemp("", "apikey_maxkeys_*.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := f.Name()
+	f.Close()
+	t.Cleanup(func() { os.Remove(path) })
+
+	s, err := OpenStore(path, WithMaxKeys(2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+
+	// First two keys should succeed.
+	_, _, err = s.Generate("key_MK1", "owner_mk", "Key 1", nil, 0)
+	if err != nil {
+		t.Fatalf("1st key: %v", err)
+	}
+	_, _, err = s.Generate("key_MK2", "owner_mk", "Key 2", nil, 0)
+	if err != nil {
+		t.Fatalf("2nd key: %v", err)
+	}
+
+	// Third key should fail with "limit" in the error message.
+	_, _, err = s.Generate("key_MK3", "owner_mk", "Key 3", nil, 0)
+	if err == nil {
+		t.Fatal("expected error for 3rd key exceeding limit, got nil")
+	}
+	if !strings.Contains(err.Error(), "limit") {
+		t.Errorf("error should contain 'limit', got: %v", err)
+	}
+
+	// Different owner should still be able to create keys.
+	_, _, err = s.Generate("key_MK4", "other_owner_mk", "Key 4", nil, 0)
+	if err != nil {
+		t.Fatalf("different owner should succeed: %v", err)
+	}
+}
+
+// TestAudit_HookCalled verifies that the audit hook is called for generate, resolve, revoke.
+func TestAudit_HookCalled(t *testing.T) {
+	f, err := os.CreateTemp("", "apikey_audit_hook_*.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := f.Name()
+	f.Close()
+	t.Cleanup(func() { os.Remove(path) })
+
+	var events []string
+	s, err := OpenStore(path, WithAudit(func(event, keyID, ownerID string) {
+		events = append(events, event)
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+
+	// Generate a key.
+	clearKey, _, err := s.Generate("key_AH1", "owner_ah", "Audit Key", nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Resolve the key.
+	_, err = s.Resolve(clearKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Revoke the key.
+	if err := s.Revoke("key_AH1"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify events.
+	if len(events) != 3 {
+		t.Fatalf("events = %v, want 3 events", events)
+	}
+	want := []string{"generate", "resolve", "revoke"}
+	for i, w := range want {
+		if events[i] != w {
+			t.Errorf("events[%d] = %q, want %q", i, events[i], w)
+		}
 	}
 }
