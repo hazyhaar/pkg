@@ -1,2 +1,4 @@
 bin/
 *.db
+/migrate-shards
+2026-*.txt
