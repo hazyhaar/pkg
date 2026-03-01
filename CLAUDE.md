@@ -56,8 +56,28 @@ Voir `CLAUDE.md` interne (section "Migration MCP SDK") pour le tableau de mappin
 
 ```bash
 CGO_ENABLED=0 go build ./...
-go test ./... -count=1
+go test -race -v -count=1 -timeout 120s ./...   # -race obligatoire
+make test                                         # équivalent via Makefile
 ```
+
+## CI/CD
+
+**GitHub Actions** actif sur `hazyhaar/pkg`. Chaque push sur `main` et chaque PR déclenche :
+
+1. **Lint** — `golangci-lint run` (installé via `go install`, pas l'action pré-buildée — compat Go 1.25)
+2. **Test** — `go test -race -v -count=1 -timeout 120s ./...`
+3. **Gate `CI OK`** — bloque le merge si lint ou test échoue
+
+**Workflow** : `.github/workflows/ci.yml`
+**Branch protection** : `main` protégée — status check `CI OK` requis, force push interdit.
+
+### Règles pour les agents Claude
+
+- **Toujours lancer `make test` localement** avant de proposer un commit
+- **Le flag `-race` est obligatoire** dans les tests — ne jamais le retirer
+- **Ne pas ignorer les erreurs de lint** — les corriger ou les exclure explicitement dans `.golangci.yml`
+- **goleak** est actif sur vtq, watch, dbsync, mcpquic, chassis, connectivity — tout test qui fuite une goroutine échouera
+- **Si un test échoue en CI mais pas en local** : c'est un bug (timing, env-dependent). Le fixer, pas le skip
 
 ## Pièges connus
 
