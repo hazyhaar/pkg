@@ -16,7 +16,7 @@ import (
 func TraceID(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id := make([]byte, 4)
-		rand.Read(id)
+		_, _ = rand.Read(id)
 		traceID := hex.EncodeToString(id)
 
 		ctx := kit.WithTraceID(r.Context(), traceID)

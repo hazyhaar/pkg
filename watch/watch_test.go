@@ -55,7 +55,7 @@ func TestPragmaUserVersion(t *testing.T) {
 		t.Fatalf("expected 0, got %d", v)
 	}
 
-	if _, err := db.Exec("PRAGMA user_version = 42"); err != nil {
+	if _, err = db.Exec("PRAGMA user_version = 42"); err != nil {
 		t.Fatal(err)
 	}
 	v, err = PragmaUserVersion(ctx, db)
@@ -84,7 +84,7 @@ func TestMaxColumnDetector(t *testing.T) {
 		t.Fatalf("expected 0 for empty table, got %d", v)
 	}
 
-	if _, err := db.Exec("INSERT INTO items (ts) VALUES (100)"); err != nil {
+	if _, err = db.Exec("INSERT INTO items (ts) VALUES (100)"); err != nil {
 		t.Fatal(err)
 	}
 	v, err = det(ctx, db)
@@ -109,7 +109,7 @@ func TestOnChange_FiresOnVersionChange(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	go w.OnChange(ctx, func() error {
+	go w.OnChange(ctx, func() error { //nolint:unparam // callback signature requires error return
 		reloadCount.Add(1)
 		return nil
 	})
@@ -153,7 +153,7 @@ func TestOnChange_Debounce(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	go w.OnChange(ctx, func() error {
+	go w.OnChange(ctx, func() error { //nolint:unparam // callback signature requires error return
 		reloadCount.Add(1)
 		return nil
 	})
@@ -234,7 +234,7 @@ func TestWaitForVersion(t *testing.T) {
 	// Bump version in background after a short delay.
 	go func() {
 		time.Sleep(50 * time.Millisecond)
-		db.Exec(fmt.Sprintf("PRAGMA user_version = %d", 10))
+		_, _ = db.Exec(fmt.Sprintf("PRAGMA user_version = %d", 10))
 	}()
 
 	if err := w.WaitForVersion(ctx, 10); err != nil {

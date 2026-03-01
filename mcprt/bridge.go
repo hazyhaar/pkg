@@ -3,7 +3,6 @@ package mcprt
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"time"
 
@@ -112,7 +111,7 @@ func registerDynamicTool(srv *mcp.Server, reg *Registry, t *DynamicTool, cfg *br
 
 		if execErr != nil {
 			var res mcp.CallToolResult
-			res.SetError(errors.New(fmt.Sprintf("%s: %v", toolName, execErr)))
+			res.SetError(fmt.Errorf("%s: %v", toolName, execErr))
 			return &res, nil
 		}
 		return &mcp.CallToolResult{

@@ -12,6 +12,12 @@ import (
 	"github.com/hazyhaar/pkg/observability"
 )
 
+// ShardCatalog registers dossiers in the usertenant catalog.
+// Implemented by *tenant.Pool. Optional: if nil, catalog registration is skipped.
+type ShardCatalog interface {
+	EnsureShard(ctx context.Context, dossierID, ownerID, name string) error
+}
+
 // Ingester is the main pipeline orchestrator.
 type Ingester struct {
 	Store             *Store
@@ -22,7 +28,9 @@ type Ingester struct {
 	Events            *observability.EventLogger
 	NewID             idgen.Generator
 	MarkdownConverter MarkdownConverter // optional, set via WithMarkdownConverter
+	BufferWriter      *BufferWriter     // optional, set via WithBufferWriter — writes .md to HORAG buffer
 	KeyResolver       KeyResolver       // required for MCP/connectivity auth, set via WithKeyResolver
+	ShardCatalog      ShardCatalog      // optional, set via WithShardCatalog — registers dossiers in usertenant
 }
 
 // IngesterOption configures an Ingester.
@@ -60,6 +68,12 @@ func WithMarkdownConverter(fn MarkdownConverter) IngesterOption {
 // callers. Without it, all authenticated handlers reject with an error.
 func WithKeyResolver(fn KeyResolver) IngesterOption {
 	return func(ing *Ingester) { ing.KeyResolver = fn }
+}
+
+// WithShardCatalog sets the shard catalog for registering dossiers in usertenant.
+// If nil, catalog registration is skipped (best-effort).
+func WithShardCatalog(sc ShardCatalog) IngesterOption {
+	return func(ing *Ingester) { ing.ShardCatalog = sc }
 }
 
 // resolveOwner extracts the owner identity from either a direct ownerSub
@@ -138,11 +152,11 @@ func (ing *Ingester) Close() error {
 	return ing.Store.Close()
 }
 
-func (ing *Ingester) auditLog(operation, userID, params, result string, err error, duration time.Duration) {
+func (ing *Ingester) auditLog(operation, userID, params, result string, duration time.Duration) {
 	if ing.Audit == nil {
 		return
 	}
-	entry := ing.Audit.NewAuditEntry("sas_ingester", operation, params, result, err, duration)
+	entry := ing.Audit.NewAuditEntry("sas_ingester", operation, params, result, nil, duration)
 	entry.UserID = userID
 	ing.Audit.LogAsync(entry)
 }
@@ -210,12 +224,12 @@ func (ing *Ingester) IngestWithToken(r io.Reader, dossierID, ownerSub, originalT
 	if upload.Deduplicated {
 		result.State = "deduplicated"
 		// Pre-cutoff audit: ownerSub is explicitly labeled as Sas-internal.
-		ing.auditLog("sas.upload.dedup", ownerSub, dossierID, upload.SHA256, nil, time.Since(start))
+		ing.auditLog("sas.upload.dedup", ownerSub, dossierID, upload.SHA256, time.Since(start))
 		return result, nil
 	}
 
 	// Pre-cutoff audit: last use of ownerSub before erasure.
-	ing.auditLog("sas.upload.received", ownerSub, dossierID, upload.SHA256, nil, time.Since(start))
+	ing.auditLog("sas.upload.received", ownerSub, dossierID, upload.SHA256, time.Since(start))
 
 	// --- Identity cutoff: ownerSub is erased from this point ---
 	// The pipeline state carries only the opaque dossier_id.
@@ -241,7 +255,7 @@ func (ing *Ingester) IngestFromUploadWithToken(upload *UploadResult, dossierID, 
 	}
 
 	// Pre-cutoff audit.
-	ing.auditLog("sas.tus.received", ownerSub, dossierID, upload.SHA256, nil, time.Since(start))
+	ing.auditLog("sas.tus.received", ownerSub, dossierID, upload.SHA256, time.Since(start))
 
 	// --- Identity cutoff ---
 	result := &IngestResult{
@@ -281,7 +295,7 @@ func (ing *Ingester) processPipeline(upload *UploadResult, dossierID, originalTo
 		}
 		result.State = "blocked"
 		// Post-cutoff: no ownerSub in logs, only opaque dossierID.
-		ing.auditLog("sas.pipeline.blocked", "", dossierID, upload.SHA256, nil, time.Since(start))
+		ing.auditLog("sas.pipeline.blocked", "", dossierID, upload.SHA256, time.Since(start))
 		ing.recordEvent("upload", upload.SHA256, "", "blocked",
 			fmt.Sprintf(`{"warnings":%q}`, scanResult.Warnings), false)
 		ing.recordMetric(observability.MetricTaskProcessedCount, 1, "count")
@@ -318,7 +332,7 @@ func (ing *Ingester) processPipeline(upload *UploadResult, dossierID, originalTo
 	duration := time.Since(start)
 	// Post-cutoff audit: no ownerSub, only opaque dossierID.
 	ing.auditLog("sas.pipeline.complete", "", dossierID,
-		fmt.Sprintf("sha256=%s state=%s", upload.SHA256, finalState), nil, duration)
+		fmt.Sprintf("sha256=%s state=%s", upload.SHA256, finalState), duration)
 	ing.recordEvent("upload", upload.SHA256, "", "complete",
 		fmt.Sprintf(`{"state":%q,"mime":%q}`, finalState, mime), true)
 	ing.recordMetric(observability.MetricWorkflowDurationMs, float64(duration.Milliseconds()), "milliseconds")
@@ -354,6 +368,26 @@ func (ing *Ingester) processPipeline(upload *UploadResult, dossierID, originalTo
 						"matches", textInj.Matches)
 				}
 			}
+		}
+	}
+
+	// Step 5.5c: write markdown to HORAG buffer for vectorization.
+	// Conditioned on: state still ready AND markdown non-empty AND BufferWriter configured.
+	slog.Info("step 5.5c check",
+		"component", "ingester",
+		"sha256", upload.SHA256,
+		"final_state", finalState,
+		"markdown_len", len(result.MarkdownText),
+		"buffer_writer_nil", ing.BufferWriter == nil)
+	if finalState == "ready" && result.MarkdownText != "" && ing.BufferWriter != nil {
+		if err := ing.BufferWriter.Write(context.Background(), dossierID, upload.SHA256, upload.SHA256, result.MarkdownText); err != nil {
+			slog.Warn("buffer writer failed", "component", "ingester",
+				"sha256", upload.SHA256, "error", err)
+		} else {
+			slog.Info("step 5.5c wrote buffer file",
+				"component", "ingester",
+				"sha256", upload.SHA256,
+				"dossier_id", dossierID)
 		}
 	}
 

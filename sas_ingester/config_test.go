@@ -36,8 +36,8 @@ jwt_secret: "secret123"
 		t.Fatal(err)
 	}
 	defer os.Remove(f.Name())
-	f.WriteString(yaml)
-	f.Close()
+	_, _ = f.WriteString(yaml)
+	_ = f.Close()
 
 	cfg, err := LoadConfig(f.Name())
 	if err != nil {

@@ -16,8 +16,8 @@ func TestStoreMarkdown(t *testing.T) {
 	s := tempStore(t)
 
 	now := time.Now().UTC().Format(time.RFC3339)
-	s.CreateDossier(&Dossier{ID: "d-md", OwnerJWTSub: "u", CreatedAt: now})
-	s.InsertPiece(&Piece{SHA256: "sha-md", DossierID: "d-md", State: "ready", CreatedAt: now, UpdatedAt: now})
+	_ = s.CreateDossier(&Dossier{ID: "d-md", OwnerJWTSub: "u", CreatedAt: now})
+	_ = s.InsertPiece(&Piece{SHA256: "sha-md", DossierID: "d-md", State: "ready", CreatedAt: now, UpdatedAt: now})
 
 	// Store markdown.
 	if err := s.StoreMarkdown("sha-md", "d-md", "# Hello\n\nWorld"); err != nil {
@@ -82,9 +82,9 @@ func TestMarkdownCascadeDelete(t *testing.T) {
 	s := tempStore(t)
 
 	now := time.Now().UTC().Format(time.RFC3339)
-	s.CreateDossier(&Dossier{ID: "d-cascade", OwnerJWTSub: "u", CreatedAt: now})
-	s.InsertPiece(&Piece{SHA256: "sha-c", DossierID: "d-cascade", State: "ready", CreatedAt: now, UpdatedAt: now})
-	s.StoreMarkdown("sha-c", "d-cascade", "# Will be deleted")
+	_ = s.CreateDossier(&Dossier{ID: "d-cascade", OwnerJWTSub: "u", CreatedAt: now})
+	_ = s.InsertPiece(&Piece{SHA256: "sha-c", DossierID: "d-cascade", State: "ready", CreatedAt: now, UpdatedAt: now})
+	_ = s.StoreMarkdown("sha-c", "d-cascade", "# Will be deleted")
 
 	// Delete dossier — should cascade to pieces and markdown.
 	if err := s.DeleteDossier("d-cascade"); err != nil {
@@ -149,7 +149,7 @@ func TestConnectivityCreateContext(t *testing.T) {
 	}
 
 	var result map[string]any
-	if err := json.Unmarshal(resp, &result); err != nil {
+	if err = json.Unmarshal(resp, &result); err != nil {
 		t.Fatal(err)
 	}
 
@@ -224,7 +224,7 @@ func TestConnectivityCreateContextDefaultName(t *testing.T) {
 	}
 
 	var result map[string]any
-	json.Unmarshal(resp, &result)
+	_ = json.Unmarshal(resp, &result)
 	if result["name"] != "contexte jetable" {
 		t.Errorf("default name = %q, want %q", result["name"], "contexte jetable")
 	}
@@ -276,7 +276,7 @@ func TestConnectivityListPiecesEmpty(t *testing.T) {
 	}
 
 	var result map[string]any
-	json.Unmarshal(resp, &result)
+	_ = json.Unmarshal(resp, &result)
 	count := result["count"].(float64)
 	if count != 0 {
 		t.Errorf("count = %v, want 0", count)
@@ -314,7 +314,7 @@ func TestConnectivityHoroskeyAuth(t *testing.T) {
 	}
 
 	var result map[string]any
-	json.Unmarshal(resp, &result)
+	_ = json.Unmarshal(resp, &result)
 	dossierID := result["dossier_id"].(string)
 
 	d, _ := ing.Store.GetDossier(dossierID)
@@ -327,6 +327,35 @@ func TestConnectivityHoroskeyAuth(t *testing.T) {
 		[]byte(`{"horoskey":"hk_bad_key"}`))
 	if err == nil {
 		t.Error("expected error for invalid horoskey")
+	}
+}
+
+// --- extFromMIME ---
+
+func TestExtFromMIME(t *testing.T) {
+	// WHAT: extFromMIME maps MIME types to file extensions for docpipe.
+	// WHY: TUS uploads assemble chunks into a temp file — docpipe needs
+	//       a recognizable extension to detect the format.
+	cases := []struct {
+		mime string
+		want string
+	}{
+		{"text/plain", ".txt"},
+		{"text/plain; charset=utf-8", ".txt"},
+		{"text/markdown", ".md"},
+		{"text/html", ".html"},
+		{"text/html; charset=utf-8", ".html"},
+		{"application/pdf", ".pdf"},
+		{"application/vnd.openxmlformats-officedocument.wordprocessingml.document", ".docx"},
+		{"application/vnd.oasis.opendocument.text", ".odt"},
+		{"application/octet-stream", ".bin"},
+		{"", ".bin"},
+	}
+	for _, tc := range cases {
+		got := extFromMIME(tc.mime)
+		if got != tc.want {
+			t.Errorf("extFromMIME(%q) = %q, want %q", tc.mime, got, tc.want)
+		}
 	}
 }
 
@@ -352,7 +381,7 @@ func TestIngestResultMarkdownField(t *testing.T) {
 		t.Fatal(err)
 	}
 	var m map[string]any
-	json.Unmarshal(data, &m)
+	_ = json.Unmarshal(data, &m)
 	if m["markdown_text"] != "# Hello" {
 		t.Errorf("markdown_text = %v", m["markdown_text"])
 	}
@@ -361,7 +390,7 @@ func TestIngestResultMarkdownField(t *testing.T) {
 	result2 := &IngestResult{SHA256: "abc", DossierID: "d-1", State: "ready"}
 	data2, _ := json.Marshal(result2)
 	var m2 map[string]any
-	json.Unmarshal(data2, &m2)
+	_ = json.Unmarshal(data2, &m2)
 	if _, ok := m2["markdown_text"]; ok {
 		t.Error("empty markdown_text should be omitted")
 	}

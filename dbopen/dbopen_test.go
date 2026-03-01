@@ -204,7 +204,7 @@ func TestRunTxRollback(t *testing.T) {
 
 	sentinel := errors.New("rollback me")
 	err := dbopen.RunTx(ctx, db, func(tx *sql.Tx) error {
-		tx.Exec(`INSERT INTO tx_rb_test (id) VALUES ('1')`)
+		_, _ = tx.Exec(`INSERT INTO tx_rb_test (id) VALUES ('1')`)
 		return sentinel
 	})
 	if !errors.Is(err, sentinel) {
@@ -212,7 +212,7 @@ func TestRunTxRollback(t *testing.T) {
 	}
 
 	var count int
-	db.QueryRow(`SELECT COUNT(*) FROM tx_rb_test`).Scan(&count)
+	_ = db.QueryRow(`SELECT COUNT(*) FROM tx_rb_test`).Scan(&count)
 	if count != 0 {
 		t.Fatalf("count = %d, want 0 after rollback", count)
 	}
@@ -228,7 +228,7 @@ func TestExec(t *testing.T) {
 	}
 
 	var count int
-	db.QueryRow(`SELECT COUNT(*) FROM exec_test`).Scan(&count)
+	_ = db.QueryRow(`SELECT COUNT(*) FROM exec_test`).Scan(&count)
 	if count != 1 {
 		t.Fatalf("count = %d, want 1", count)
 	}

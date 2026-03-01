@@ -101,9 +101,9 @@ func TestOnce_DifferentKeys(t *testing.T) {
 		return []byte("ok"), nil
 	}
 
-	g.Once(ctx, "key-a", fn)
-	g.Once(ctx, "key-b", fn)
-	g.Once(ctx, "key-a", fn) // duplicate
+	_, _ = g.Once(ctx, "key-a", fn)
+	_, _ = g.Once(ctx, "key-b", fn)
+	_, _ = g.Once(ctx, "key-a", fn) // duplicate
 
 	if count != 2 {
 		t.Fatalf("fn called %d times, want 2 (one per unique key)", count)
@@ -153,7 +153,7 @@ func TestSeen(t *testing.T) {
 		t.Fatal("key should not be seen")
 	}
 
-	g.Once(ctx, "present", func() ([]byte, error) {
+	_, _ = g.Once(ctx, "present", func() ([]byte, error) {
 		return []byte("ok"), nil
 	})
 
@@ -171,13 +171,13 @@ func TestPrune(t *testing.T) {
 	ctx := context.Background()
 
 	// Insert entries with old timestamps.
-	g.Once(ctx, "old-key", func() ([]byte, error) { return []byte("old"), nil })
+	_, _ = g.Once(ctx, "old-key", func() ([]byte, error) { return []byte("old"), nil })
 
 	// Backdate the entry.
-	db.Exec("UPDATE idempotent_log SET created_at = ? WHERE original_key = 'old-key'",
+	_, _ = db.Exec("UPDATE idempotent_log SET created_at = ? WHERE original_key = 'old-key'",
 		time.Now().Add(-48*time.Hour).Unix())
 
-	g.Once(ctx, "new-key", func() ([]byte, error) { return []byte("new"), nil })
+	_, _ = g.Once(ctx, "new-key", func() ([]byte, error) { return []byte("new"), nil })
 
 	deleted, err := g.Prune(ctx, 24*time.Hour)
 	if err != nil {
@@ -204,7 +204,7 @@ func TestDelete(t *testing.T) {
 	_, g := setupTestGuard(t)
 	ctx := context.Background()
 
-	g.Once(ctx, "del-key", func() ([]byte, error) { return []byte("ok"), nil })
+	_, _ = g.Once(ctx, "del-key", func() ([]byte, error) { return []byte("ok"), nil })
 
 	if err := g.Delete(ctx, "del-key"); err != nil {
 		t.Fatal(err)
@@ -217,7 +217,7 @@ func TestDelete(t *testing.T) {
 
 	// Should be re-executable now.
 	callCount := 0
-	g.Once(ctx, "del-key", func() ([]byte, error) {
+	_, _ = g.Once(ctx, "del-key", func() ([]byte, error) {
 		callCount++
 		return []byte("new"), nil
 	})
@@ -238,8 +238,8 @@ func TestCount(t *testing.T) {
 		t.Fatalf("empty table count = %d, want 0", count)
 	}
 
-	g.Once(ctx, "a", func() ([]byte, error) { return nil, nil })
-	g.Once(ctx, "b", func() ([]byte, error) { return nil, nil })
+	_, _ = g.Once(ctx, "a", func() ([]byte, error) { return nil, nil })
+	_, _ = g.Once(ctx, "b", func() ([]byte, error) { return nil, nil })
 
 	count, err = g.Count(ctx)
 	if err != nil {

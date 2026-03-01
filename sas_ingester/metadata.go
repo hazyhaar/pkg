@@ -194,9 +194,9 @@ func computeMultiChunkEntropy(chunkDir string, chunkCount int) float64 {
 	}
 
 	var entropy float64
-	for _, f := range freq {
-		if f > 0 {
-			p := f / total
+	for i := range freq {
+		if freq[i] > 0 {
+			p := freq[i] / total
 			entropy -= p * math.Log2(p)
 		}
 	}
@@ -222,9 +222,9 @@ func shannonEntropy(data []byte) float64 {
 	}
 	total := float64(len(data))
 	var entropy float64
-	for _, f := range freq {
-		if f > 0 {
-			p := f / total
+	for i := range freq {
+		if freq[i] > 0 {
+			p := freq[i] / total
 			entropy -= p * math.Log2(p)
 		}
 	}

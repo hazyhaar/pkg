@@ -94,7 +94,7 @@ func TestRemoteStore_Close_Flushes(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		var entries []*Entry
-		json.Unmarshal(body, &entries)
+		_ = json.Unmarshal(body, &entries)
 		count += len(entries)
 		w.WriteHeader(204)
 	}))
@@ -147,7 +147,7 @@ func TestIngestHandler_WritesToStore(t *testing.T) {
 	store.Close()
 
 	var count int
-	db.QueryRow("SELECT COUNT(*) FROM sql_traces WHERE trace_id='trc_1'").Scan(&count)
+	_ = db.QueryRow("SELECT COUNT(*) FROM sql_traces WHERE trace_id='trc_1'").Scan(&count)
 	if count != 2 {
 		t.Fatalf("stored %d entries, want 2", count)
 	}
@@ -157,7 +157,7 @@ func TestIngestHandler_RejectsGet(t *testing.T) {
 	db, _ := sql.Open("sqlite", ":memory:")
 	defer db.Close()
 	store := NewStore(db)
-	store.Init()
+	_ = store.Init()
 	defer store.Close()
 
 	handler := IngestHandler(store)
@@ -175,7 +175,7 @@ func TestIngestHandler_RejectsInvalidJSON(t *testing.T) {
 	db, _ := sql.Open("sqlite", ":memory:")
 	defer db.Close()
 	store := NewStore(db)
-	store.Init()
+	_ = store.Init()
 	defer store.Close()
 
 	handler := IngestHandler(store)

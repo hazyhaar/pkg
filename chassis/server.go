@@ -195,11 +195,11 @@ func (s *Server) Start(ctx context.Context) error {
 				if s.mcpHandler != nil {
 					go s.mcpHandler.ServeConn(ctx, conn)
 				} else {
-					conn.CloseWithError(quic.ApplicationErrorCode(0x10), "MCP not enabled")
+					_ = conn.CloseWithError(quic.ApplicationErrorCode(0x10), "MCP not enabled")
 				}
 			default:
 				s.logger.Warn("unknown ALPN, closing", "alpn", alpn, "remote", conn.RemoteAddr())
-				conn.CloseWithError(quic.ApplicationErrorCode(0x11), "unsupported ALPN: "+alpn)
+				_ = conn.CloseWithError(quic.ApplicationErrorCode(0x11), "unsupported ALPN: "+alpn)
 			}
 		}
 	}()
@@ -222,7 +222,7 @@ func (s *Server) Stop(ctx context.Context) error {
 
 	var firstErr error
 	if s.tcpServer != nil {
-		if err := s.tcpServer.Shutdown(ctx); err != nil && firstErr == nil {
+		if err := s.tcpServer.Shutdown(ctx); err != nil {
 			firstErr = err
 		}
 	}

@@ -28,7 +28,7 @@ func (d *Dispatcher) Watch(ctx context.Context, db *sql.DB, interval time.Durati
 	if err := d.Reload(ctx, db); err != nil {
 		d.logger.Error("channels: initial reload failed", "error", err)
 	}
-	db.QueryRow("PRAGMA data_version").Scan(&lastVersion)
+	_ = db.QueryRow("PRAGMA data_version").Scan(&lastVersion)
 
 	d.logger.Info("channels watcher started", "interval", interval)
 

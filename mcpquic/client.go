@@ -43,19 +43,19 @@ func (c *Client) Connect(ctx context.Context) error {
 
 	alpn := conn.ConnectionState().TLS.NegotiatedProtocol
 	if alpn != ALPNProtocolMCP {
-		conn.CloseWithError(ConnErrorUnsupportedALPN, "bad ALPN")
+		_ = conn.CloseWithError(ConnErrorUnsupportedALPN, "bad ALPN")
 		return fmt.Errorf("%w: got %q", ErrUnsupportedALPN, alpn)
 	}
 
 	stream, err := conn.OpenStreamSync(ctx)
 	if err != nil {
-		conn.CloseWithError(ConnErrorProtocolViolation, "stream open failed")
+		_ = conn.CloseWithError(ConnErrorProtocolViolation, "stream open failed")
 		return fmt.Errorf("open stream: %w", err)
 	}
 
-	if err := SendMagicBytes(stream); err != nil {
+	if err = SendMagicBytes(stream); err != nil {
 		stream.Close()
-		conn.CloseWithError(ConnErrorProtocolViolation, "magic bytes failed")
+		_ = conn.CloseWithError(ConnErrorProtocolViolation, "magic bytes failed")
 		return err
 	}
 
@@ -79,7 +79,7 @@ func (c *Client) Connect(ctx context.Context) error {
 	// Connect handles the full initialize handshake automatically.
 	session, err := mcpClient.Connect(connectCtx, transport, nil)
 	if err != nil {
-		c.closeTransport()
+		_ = c.closeTransport()
 		return fmt.Errorf("mcp connect: %w", err)
 	}
 
@@ -123,7 +123,7 @@ func (c *Client) closeTransport() error {
 		(*c.stream).Close()
 	}
 	if c.conn != nil {
-		c.conn.CloseWithError(ConnErrorNoError, "client closing")
+		_ = c.conn.CloseWithError(ConnErrorNoError, "client closing")
 	}
 	return nil
 }

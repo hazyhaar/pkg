@@ -180,7 +180,7 @@ func (mm *MetricsManager) flushLocked() {
 	stmt, err := tx.PrepareContext(ctx,
 		`INSERT INTO metrics_timeseries (metric_name, timestamp, value, labels, unit) VALUES (?,?,?,?,?)`)
 	if err != nil {
-		tx.Rollback()
+		_ = tx.Rollback()
 		slog.Error("observability metrics: prepare", "error", err)
 		return
 	}

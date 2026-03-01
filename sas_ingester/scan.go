@@ -209,10 +209,10 @@ func scanClamAV(filePath, socketPath string) (string, error) {
 		return "", fmt.Errorf("connect clamav: %w", err)
 	}
 	defer conn.Close()
-	conn.SetDeadline(time.Now().Add(60 * time.Second))
+	_ = conn.SetDeadline(time.Now().Add(60 * time.Second))
 
 	// Send INSTREAM command.
-	if _, err := conn.Write([]byte("zINSTREAM\x00")); err != nil {
+	if _, err = conn.Write([]byte("zINSTREAM\x00")); err != nil {
 		return "", fmt.Errorf("send instream cmd: %w", err)
 	}
 
@@ -232,10 +232,10 @@ func scanClamAV(filePath, socketPath string) (string, error) {
 			lenBuf[1] = byte(n >> 16)
 			lenBuf[2] = byte(n >> 8)
 			lenBuf[3] = byte(n)
-			if _, err := conn.Write(lenBuf); err != nil {
+			if _, err = conn.Write(lenBuf); err != nil {
 				return "", fmt.Errorf("send chunk length: %w", err)
 			}
-			if _, err := conn.Write(buf[:n]); err != nil {
+			if _, err = conn.Write(buf[:n]); err != nil {
 				return "", fmt.Errorf("send chunk data: %w", err)
 			}
 		}
@@ -245,7 +245,7 @@ func scanClamAV(filePath, socketPath string) (string, error) {
 	}
 
 	// Terminate stream with zero-length chunk.
-	if _, err := conn.Write([]byte{0, 0, 0, 0}); err != nil {
+	if _, err = conn.Write([]byte{0, 0, 0, 0}); err != nil {
 		return "", fmt.Errorf("send terminator: %w", err)
 	}
 

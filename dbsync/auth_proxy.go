@@ -2,6 +2,7 @@ package dbsync
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -251,7 +252,7 @@ func (p *AuthProxy) ResetPasswordHandler(setFlash func(http.ResponseWriter, stri
 // callBO sends a JSON POST to the BO internal API and decodes the response.
 func (p *AuthProxy) callBO(path string, body []byte) (*authResponse, error) {
 	url := p.boURL + path
-	req, err := http.NewRequest("POST", url, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(context.Background(), "POST", url, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}

@@ -72,7 +72,7 @@ func TestOpenAIClient(t *testing.T) {
 			data[i].Index = i
 		}
 
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"data":  data,
 			"model": req.Model,
 		})

@@ -118,7 +118,7 @@ func TestRevoke(t *testing.T) {
 	}
 
 	// Revoke.
-	if err := s.Revoke("key_003"); err != nil {
+	if err = s.Revoke("key_003"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -148,7 +148,7 @@ func TestExpiry(t *testing.T) {
 
 	// Set expiry to the past.
 	past := time.Now().UTC().Add(-time.Hour).Format(time.RFC3339)
-	if err := s.SetExpiry("key_004", past); err != nil {
+	if err = s.SetExpiry("key_004", past); err != nil {
 		t.Fatal(err)
 	}
 
@@ -163,7 +163,7 @@ func TestExpiry(t *testing.T) {
 
 	// Set expiry to the future — should work again.
 	future := time.Now().UTC().Add(24 * time.Hour).Format(time.RFC3339)
-	if err := s.SetExpiry("key_004", future); err != nil {
+	if err = s.SetExpiry("key_004", future); err != nil {
 		t.Fatal(err)
 	}
 	_, err = s.Resolve(clearKey)
@@ -175,9 +175,9 @@ func TestExpiry(t *testing.T) {
 func TestList(t *testing.T) {
 	s := tempStore(t)
 
-	s.Generate("key_L1", "owner_L", "Key 1", []string{"a"}, 10)
-	s.Generate("key_L2", "owner_L", "Key 2", []string{"b"}, 20)
-	s.Generate("key_L3", "other_owner", "Key 3", nil, 0)
+	_, _, _ = s.Generate("key_L1", "owner_L", "Key 1", []string{"a"}, 10)
+	_, _, _ = s.Generate("key_L2", "owner_L", "Key 2", []string{"b"}, 20)
+	_, _, _ = s.Generate("key_L3", "other_owner", "Key 3", nil, 0)
 
 	keys, err := s.List("owner_L")
 	if err != nil {
@@ -303,10 +303,10 @@ func TestIsDossierScoped(t *testing.T) {
 func TestListByDossier(t *testing.T) {
 	s := tempStore(t)
 
-	s.Generate("key_LD1", "owner_A", "Key A1", nil, 0, WithDossier("dossier_X"))
-	s.Generate("key_LD2", "owner_A", "Key A2", nil, 0, WithDossier("dossier_X"))
-	s.Generate("key_LD3", "owner_A", "Key A3", nil, 0, WithDossier("dossier_Y"))
-	s.Generate("key_LD4", "owner_B", "Key B1", nil, 0) // legacy, no dossier
+	_, _, _ = s.Generate("key_LD1", "owner_A", "Key A1", nil, 0, WithDossier("dossier_X"))
+	_, _, _ = s.Generate("key_LD2", "owner_A", "Key A2", nil, 0, WithDossier("dossier_X"))
+	_, _, _ = s.Generate("key_LD3", "owner_A", "Key A3", nil, 0, WithDossier("dossier_Y"))
+	_, _, _ = s.Generate("key_LD4", "owner_B", "Key B1", nil, 0) // legacy, no dossier
 
 	keys, err := s.ListByDossier("dossier_X")
 	if err != nil {
@@ -317,7 +317,7 @@ func TestListByDossier(t *testing.T) {
 	}
 
 	// Revoke one key — should not appear in ListByDossier.
-	if err := s.Revoke("key_LD1"); err != nil {
+	if err = s.Revoke("key_LD1"); err != nil {
 		t.Fatal(err)
 	}
 	keys, err = s.ListByDossier("dossier_X")
@@ -341,8 +341,8 @@ func TestListByDossier(t *testing.T) {
 func TestList_IncludesDossierID(t *testing.T) {
 	s := tempStore(t)
 
-	s.Generate("key_LI1", "owner_LI", "Scoped", nil, 0, WithDossier("dossier_Z"))
-	s.Generate("key_LI2", "owner_LI", "Legacy", nil, 0)
+	_, _, _ = s.Generate("key_LI1", "owner_LI", "Scoped", nil, 0, WithDossier("dossier_Z"))
+	_, _, _ = s.Generate("key_LI2", "owner_LI", "Legacy", nil, 0)
 
 	keys, err := s.List("owner_LI")
 	if err != nil {
@@ -397,7 +397,7 @@ func TestAudit_ServiceNameWithQuote(t *testing.T) {
 	defer rows.Close()
 	if rows.Next() {
 		var raw string
-		rows.Scan(&raw)
+		_ = rows.Scan(&raw)
 		var parsed []string
 		if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
 			t.Errorf("stored JSON is invalid: %q — json.Unmarshal error: %v", raw, err)
@@ -471,7 +471,7 @@ func TestAudit_SetExpiryOnRevokedKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Revoke("key_REV_EXP"); err != nil {
+	if err = s.Revoke("key_REV_EXP"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -489,7 +489,7 @@ func TestAudit_UpdateServicesOnRevokedKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Revoke("key_REV_SVC"); err != nil {
+	if err = s.Revoke("key_REV_SVC"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -613,9 +613,9 @@ func TestAudit_Count(t *testing.T) {
 	s := tempStore(t)
 
 	// Generate 3 keys for the same owner.
-	s.Generate("key_C1", "owner_count", "Key 1", nil, 0)
-	s.Generate("key_C2", "owner_count", "Key 2", nil, 0)
-	s.Generate("key_C3", "owner_count", "Key 3", nil, 0)
+	_, _, _ = s.Generate("key_C1", "owner_count", "Key 1", nil, 0)
+	_, _, _ = s.Generate("key_C2", "owner_count", "Key 2", nil, 0)
+	_, _, _ = s.Generate("key_C3", "owner_count", "Key 3", nil, 0)
 
 	n, err := s.Count("owner_count")
 	if err != nil {
@@ -626,7 +626,7 @@ func TestAudit_Count(t *testing.T) {
 	}
 
 	// Revoke one — count should drop to 2.
-	if err := s.Revoke("key_C2"); err != nil {
+	if err = s.Revoke("key_C2"); err != nil {
 		t.Fatal(err)
 	}
 	n, err = s.Count("owner_count")

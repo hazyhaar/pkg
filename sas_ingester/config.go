@@ -17,6 +17,7 @@ type Config struct {
 	ClamAV     ClamAVConfig    `yaml:"clamav"`
 	Webhooks   []WebhookTarget `yaml:"webhooks"`
 	JWTSecret  string          `yaml:"jwt_secret"`
+	BufferDir  string          `yaml:"buffer_dir"` // HORAG buffer dir for .md files (empty = disabled)
 }
 
 // ClamAVConfig configures the ClamAV scanner.
@@ -59,7 +60,10 @@ func LoadConfig(path string) (*Config, error) {
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("parse config %s: %w", path, err)
 	}
-	return cfg, cfg.Validate()
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+	return cfg, nil
 }
 
 // Validate checks that required fields are present and values are sane.

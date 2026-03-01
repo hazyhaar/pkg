@@ -86,7 +86,7 @@ func ValidateURL(rawURL string) error {
 		// DNS failure — allow through (might be a valid external host that
 		// is temporarily unresolvable). The caller will get a network error
 		// at connection time anyway.
-		return nil
+		return nil //nolint:nilerr // intentional: DNS failure is non-blocking, error surfaces at connection time
 	}
 	for _, a := range addrs {
 		if ip := net.ParseIP(a); ip != nil && isPrivateIP(ip) {

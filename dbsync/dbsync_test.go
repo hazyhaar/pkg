@@ -26,7 +26,7 @@ import (
 )
 
 // setupTestDB creates a test SQLite database with sample tables.
-func setupTestDB(t *testing.T, dir string) (*sql.DB, string) {
+func setupTestDB(t *testing.T, dir string) *sql.DB {
 	t.Helper()
 	dbPath := filepath.Join(dir, "source.db")
 	db, err := sql.Open("sqlite", dbPath)
@@ -80,7 +80,7 @@ func setupTestDB(t *testing.T, dir string) (*sql.DB, string) {
 		}
 	}
 
-	return db, dbPath
+	return db
 }
 
 // setupRoutesDB creates a routes table for testing.
@@ -105,7 +105,7 @@ func setupRoutesDB(t *testing.T, dir string) *sql.DB {
 
 func TestFilterExcludesPrivateData(t *testing.T) {
 	dir := t.TempDir()
-	db, _ := setupTestDB(t, dir)
+	db := setupTestDB(t, dir)
 	defer db.Close()
 
 	spec := FilterSpec{
@@ -185,7 +185,7 @@ func TestFilterExcludesPrivateData(t *testing.T) {
 
 func TestFilterIncludesPublicData(t *testing.T) {
 	dir := t.TempDir()
-	db, _ := setupTestDB(t, dir)
+	db := setupTestDB(t, dir)
 	defer db.Close()
 
 	spec := FilterSpec{
@@ -241,7 +241,7 @@ func TestFilterIncludesPublicData(t *testing.T) {
 
 func TestSnapshotHashVerification(t *testing.T) {
 	dir := t.TempDir()
-	db, _ := setupTestDB(t, dir)
+	db := setupTestDB(t, dir)
 	defer db.Close()
 
 	spec := FilterSpec{
@@ -262,7 +262,7 @@ func TestSnapshotHashVerification(t *testing.T) {
 	defer f.Close()
 
 	h := sha256.New()
-	io.Copy(h, f)
+	_, _ = io.Copy(h, f)
 	expected := hex.EncodeToString(h.Sum(nil))
 
 	if meta.Hash != expected {
@@ -272,7 +272,7 @@ func TestSnapshotHashVerification(t *testing.T) {
 
 func TestSubscriberSwapAtomic(t *testing.T) {
 	dir := t.TempDir()
-	db, _ := setupTestDB(t, dir)
+	db := setupTestDB(t, dir)
 	defer db.Close()
 
 	spec := FilterSpec{
@@ -335,7 +335,7 @@ func TestSubscriberSwapAtomic(t *testing.T) {
 
 func TestPublisherProducesSnapshot(t *testing.T) {
 	dir := t.TempDir()
-	db, _ := setupTestDB(t, dir)
+	db := setupTestDB(t, dir)
 	defer db.Close()
 
 	routesDB := setupRoutesDB(t, dir)
@@ -361,7 +361,7 @@ func TestPublisherProducesSnapshot(t *testing.T) {
 	}
 
 	// Verify save chaude file exists.
-	if _, err := os.Stat(savePath); os.IsNotExist(err) {
+	if _, err = os.Stat(savePath); os.IsNotExist(err) {
 		t.Fatal("save chaude file should exist")
 	}
 
@@ -411,7 +411,7 @@ func TestPublisherWatchIntegration(t *testing.T) {
 		`CREATE TABLE engagements (id TEXT PRIMARY KEY, title TEXT, created_at INTEGER)`,
 		`INSERT INTO engagements VALUES ('e1', 'First', 1000)`,
 	} {
-		if _, err := writerDB.Exec(q); err != nil {
+		if _, err = writerDB.Exec(q); err != nil {
 			t.Fatalf("setup: %v", err)
 		}
 	}
@@ -421,7 +421,7 @@ func TestPublisherWatchIntegration(t *testing.T) {
 		t.Fatalf("open reader: %v", err)
 	}
 	defer readerDB.Close()
-	readerDB.Exec("PRAGMA journal_mode=WAL")
+	_, _ = readerDB.Exec("PRAGMA journal_mode=WAL")
 
 	routesDB := setupRoutesDB(t, dir)
 	defer routesDB.Close()
@@ -437,7 +437,7 @@ func TestPublisherWatchIntegration(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	go pub.Start(ctx)
+	go func() { _ = pub.Start(ctx) }()
 	time.Sleep(300 * time.Millisecond)
 
 	// Write on the writer connection → data_version changes for reader.
@@ -460,7 +460,7 @@ func TestRoundTripQUIC(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	db, _ := setupTestDB(t, dir)
+	db := setupTestDB(t, dir)
 	defer db.Close()
 
 	spec := FilterSpec{
@@ -492,9 +492,9 @@ func TestRoundTripQUIC(t *testing.T) {
 	go func() {
 		// We need to get the actual listen address. Use a net.ListenPacket to
 		// grab a free port, then use that port for QUIC.
-		pc, err := net.ListenPacket("udp", "127.0.0.1:0")
-		if err != nil {
-			t.Errorf("listen packet: %v", err)
+		pc, listenErr := net.ListenPacket("udp", "127.0.0.1:0")
+		if listenErr != nil {
+			t.Errorf("listen packet: %v", listenErr)
 			return
 		}
 		addr := pc.LocalAddr().String()
@@ -502,9 +502,9 @@ func TestRoundTripQUIC(t *testing.T) {
 
 		listenerReady <- addr
 
-		ListenSnapshots(ctx, addr, serverTLS, func(m SnapshotMeta, r io.Reader) error {
+		_ = ListenSnapshots(ctx, addr, serverTLS, func(m SnapshotMeta, r io.Reader) error {
 			f, _ := os.Create(subDBPath)
-			io.Copy(f, r)
+			_, _ = io.Copy(f, r)
 			f.Close()
 			received <- m
 			return nil
@@ -540,7 +540,7 @@ func TestRoundTripQUIC(t *testing.T) {
 
 func TestNoopPausesSync(t *testing.T) {
 	dir := t.TempDir()
-	db, _ := setupTestDB(t, dir)
+	db := setupTestDB(t, dir)
 	defer db.Close()
 
 	routesDB := setupRoutesDB(t, dir)
@@ -617,7 +617,7 @@ func TestRoutesTargetProvider(t *testing.T) {
 
 func TestPublisherWithStaticTargets(t *testing.T) {
 	dir := t.TempDir()
-	db, _ := setupTestDB(t, dir)
+	db := setupTestDB(t, dir)
 	defer db.Close()
 
 	savePath := filepath.Join(dir, "save.db")
@@ -652,7 +652,7 @@ func TestPublisherWithStaticTargets(t *testing.T) {
 
 func TestPublisherPing(t *testing.T) {
 	dir := t.TempDir()
-	db, _ := setupTestDB(t, dir)
+	db := setupTestDB(t, dir)
 	defer db.Close()
 
 	pub := NewPublisher(db, NewStaticTargetProvider(), FilterSpec{}, filepath.Join(dir, "s.db"), nil)
@@ -681,7 +681,7 @@ func TestSubscriber_Ping_NoSnapshot(t *testing.T) {
 
 func TestSubscriber_Ping_AfterSnapshot(t *testing.T) {
 	dir := t.TempDir()
-	db, _ := setupTestDB(t, dir)
+	db := setupTestDB(t, dir)
 	defer db.Close()
 
 	spec := FilterSpec{FullTables: []string{"engagements"}}
@@ -713,7 +713,7 @@ func TestSubscriber_Ping_AfterSnapshot(t *testing.T) {
 
 func TestSubscriber_HashMismatch(t *testing.T) {
 	dir := t.TempDir()
-	db, _ := setupTestDB(t, dir)
+	db := setupTestDB(t, dir)
 	defer db.Close()
 
 	spec := FilterSpec{FullTables: []string{"engagements"}}
@@ -748,7 +748,7 @@ func TestSubscriber_HashMismatch(t *testing.T) {
 func TestWriteProxy_ForwardsToBO(t *testing.T) {
 	bo := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("proxied"))
+		_, _ = w.Write([]byte("proxied"))
 	}))
 	defer bo.Close()
 
@@ -802,7 +802,7 @@ func TestRedirectHandler(t *testing.T) {
 
 func TestFilter_EmptySpec(t *testing.T) {
 	dir := t.TempDir()
-	db, _ := setupTestDB(t, dir)
+	db := setupTestDB(t, dir)
 	defer db.Close()
 
 	// Empty spec = no tables kept.

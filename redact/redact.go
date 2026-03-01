@@ -103,7 +103,7 @@ var ipv4Port = Rule{
 
 var ipv6Addr = Rule{
 	Name:    "ipv6_addr",
-	Pattern: regexp.MustCompile(`\[?(?:[0-9a-fA-F]{1,4}:){2,7}[0-9a-fA-F]{1,4}(?:%[a-zA-Z0-9]+)?\]?(:\d+)?`),
+	Pattern: regexp.MustCompile(`\[?(?:[0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}(?:%[a-zA-Z0-9]+)?\]?(:\d+)?`),
 	Replace: "[addr]",
 }
 

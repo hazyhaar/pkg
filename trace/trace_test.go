@@ -28,7 +28,7 @@ func TestStore_Init(t *testing.T) {
 	}
 
 	var count int
-	db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='sql_traces'").Scan(&count)
+	_ = db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='sql_traces'").Scan(&count)
 	if count != 1 {
 		t.Fatal("sql_traces table not created")
 	}
@@ -37,7 +37,7 @@ func TestStore_Init(t *testing.T) {
 func TestStore_RecordAsync_And_Close(t *testing.T) {
 	db := setupTraceDB(t)
 	store := NewStore(db)
-	store.Init()
+	_ = store.Init()
 
 	for i := 0; i < 10; i++ {
 		store.RecordAsync(&Entry{
@@ -53,7 +53,7 @@ func TestStore_RecordAsync_And_Close(t *testing.T) {
 	store.Close()
 
 	var count int
-	db.QueryRow("SELECT COUNT(*) FROM sql_traces WHERE trace_id='trc_abc'").Scan(&count)
+	_ = db.QueryRow("SELECT COUNT(*) FROM sql_traces WHERE trace_id='trc_abc'").Scan(&count)
 	if count != 10 {
 		t.Fatalf("trace count: got %d, want 10", count)
 	}
@@ -62,7 +62,7 @@ func TestStore_RecordAsync_And_Close(t *testing.T) {
 func TestStore_BatchFlush(t *testing.T) {
 	db := setupTraceDB(t)
 	store := NewStore(db)
-	store.Init()
+	_ = store.Init()
 
 	// Fill beyond batch threshold (64).
 	for i := 0; i < 100; i++ {
@@ -78,7 +78,7 @@ func TestStore_BatchFlush(t *testing.T) {
 	store.Close()
 
 	var count int
-	db.QueryRow("SELECT COUNT(*) FROM sql_traces").Scan(&count)
+	_ = db.QueryRow("SELECT COUNT(*) FROM sql_traces").Scan(&count)
 	if count != 100 {
 		t.Fatalf("total traces: got %d, want 100", count)
 	}
@@ -87,7 +87,7 @@ func TestStore_BatchFlush(t *testing.T) {
 func TestStore_RecordAsync_ErrorField(t *testing.T) {
 	db := setupTraceDB(t)
 	store := NewStore(db)
-	store.Init()
+	_ = store.Init()
 
 	store.RecordAsync(&Entry{
 		Op:        "Exec",
@@ -98,7 +98,7 @@ func TestStore_RecordAsync_ErrorField(t *testing.T) {
 	store.Close()
 
 	var errMsg string
-	db.QueryRow("SELECT error FROM sql_traces WHERE query='bad sql'").Scan(&errMsg)
+	_ = db.QueryRow("SELECT error FROM sql_traces WHERE query='bad sql'").Scan(&errMsg)
 	if errMsg != "syntax error" {
 		t.Fatalf("error: got %q", errMsg)
 	}
@@ -154,16 +154,16 @@ func TestTracingDriver_OpenAndQuery(t *testing.T) {
 	// Set up a trace store to capture entries.
 	traceDB := setupTraceDB(t)
 	store := NewStore(traceDB)
-	store.Init()
+	_ = store.Init()
 	SetStore(store)
 	defer SetStore(nil)
 
 	// Execute a query through the tracing driver.
-	db.Exec("CREATE TABLE test (id INTEGER)")
-	db.Exec("INSERT INTO test VALUES (1)")
+	_, _ = db.Exec("CREATE TABLE test (id INTEGER)")
+	_, _ = db.Exec("INSERT INTO test VALUES (1)")
 
 	var val int
-	db.QueryRow("SELECT id FROM test").Scan(&val)
+	_ = db.QueryRow("SELECT id FROM test").Scan(&val)
 	if val != 1 {
 		t.Fatalf("query result: got %d", val)
 	}
@@ -173,7 +173,7 @@ func TestTracingDriver_OpenAndQuery(t *testing.T) {
 
 	// Verify traces were recorded.
 	var count int
-	traceDB.QueryRow("SELECT COUNT(*) FROM sql_traces").Scan(&count)
+	_ = traceDB.QueryRow("SELECT COUNT(*) FROM sql_traces").Scan(&count)
 	if count == 0 {
 		t.Fatal("no traces recorded through tracing driver")
 	}

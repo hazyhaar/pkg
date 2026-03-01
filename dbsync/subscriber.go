@@ -196,12 +196,13 @@ func (s *Subscriber) handleSnapshot(meta SnapshotMeta, reader io.Reader) error {
 	os.Remove(s.dbPath + "-shm")
 
 	// Rename tmp → target.
-	if err := os.Rename(tmpPath, s.dbPath); err != nil {
+	if err = os.Rename(tmpPath, s.dbPath); err != nil {
 		return fmt.Errorf("rename: %w", err)
 	}
 
 	// Open new database read-only.
-	newDB, err := openReadOnly(s.opts.driverName, s.dbPath)
+	var newDB *sql.DB
+	newDB, err = openReadOnly(s.opts.driverName, s.dbPath)
 	if err != nil {
 		return fmt.Errorf("open new db: %w", err)
 	}

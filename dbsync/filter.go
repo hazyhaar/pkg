@@ -93,27 +93,27 @@ func ProduceSnapshot(srcDB *sql.DB, dstPath string, spec FilterSpec) (*SnapshotM
 	allowed := buildWhitelist(spec)
 
 	// Step 3: Drop tables not in whitelist.
-	if err := dropUnlisted(copyDB, allowed); err != nil {
+	if err = dropUnlisted(copyDB, allowed); err != nil {
 		return nil, fmt.Errorf("dbsync: drop unlisted: %w", err)
 	}
 
 	// Step 4: Apply WHERE clauses on FilteredTables.
 	for table, where := range spec.FilteredTables {
 		q := fmt.Sprintf("DELETE FROM %s WHERE NOT (%s)", quoteIdent(table), where)
-		if _, err := copyDB.Exec(q); err != nil {
+		if _, err = copyDB.Exec(q); err != nil {
 			return nil, fmt.Errorf("dbsync: filter %s: %w", table, err)
 		}
 	}
 
 	// Step 5: Truncate non-selected columns in PartialTables.
 	for table, pt := range spec.PartialTables {
-		if err := truncateColumns(copyDB, table, pt); err != nil {
+		if err = truncateColumns(copyDB, table, pt); err != nil {
 			return nil, fmt.Errorf("dbsync: partial %s: %w", table, err)
 		}
 	}
 
 	// Step 6: VACUUM to compact the snapshot.
-	if _, err := copyDB.Exec("VACUUM"); err != nil {
+	if _, err = copyDB.Exec("VACUUM"); err != nil {
 		return nil, fmt.Errorf("dbsync: vacuum compact: %w", err)
 	}
 

@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/hazyhaar/pkg/connectivity"
@@ -78,6 +79,13 @@ func handleCreateContext(ing *Ingester) connectivity.Handler {
 			return nil, fmt.Errorf("create dossier: %w", err)
 		}
 
+		// Best-effort: register in usertenant catalog so HORAG can resolve this shard.
+		if ing.ShardCatalog != nil {
+			if err := ing.ShardCatalog.EnsureShard(ctx, dossierID, ownerSub, req.Name); err != nil {
+				slog.Warn("shard catalog registration failed (best-effort)", "dossier_id", dossierID, "error", err)
+			}
+		}
+
 		return json.Marshal(map[string]any{
 			"dossier_id": dossierID,
 			"name":       req.Name,
@@ -120,7 +128,7 @@ func handleUploadPiece(ing *Ingester) connectivity.Handler {
 			return json.Marshal(map[string]any{
 				"error": fmt.Sprintf("file too large: %d bytes (max %d bytes = 10 MB via base64)", len(data), MaxBase64Bytes),
 				"howto": "Pour les fichiers > 10 Mo, utilisez le protocole TUS (resumable upload) " +
-					"sur l'endpoint HTTP du serveur SAS. Exemple : " +
+					"sur l'endpoint HTTP du serveur SAS. Example : " +
 					"POST /uploads avec les headers Tus-Resumable, Upload-Length, Upload-Metadata. " +
 					"Le TUS supporte jusqu'à " + fmt.Sprintf("%d", ing.Config.MaxFileMB) + " Mo et reprend automatiquement en cas de coupure.",
 			})

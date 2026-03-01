@@ -34,7 +34,7 @@ func setupMaintenanceDB(t *testing.T) *sql.DB {
 func okHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+		_, _ = w.Write([]byte("OK"))
 	})
 }
 
@@ -57,7 +57,7 @@ func TestMaintenance_Off(t *testing.T) {
 
 func TestMaintenance_On(t *testing.T) {
 	db := setupMaintenanceDB(t)
-	db.Exec(`UPDATE maintenance SET active = 1, message = 'On met à jour' WHERE id = 1`)
+	_, _ = db.Exec(`UPDATE maintenance SET active = 1, message = 'On met à jour' WHERE id = 1`)
 
 	mm := NewMaintenanceMode(db)
 
@@ -79,7 +79,7 @@ func TestMaintenance_On(t *testing.T) {
 
 func TestMaintenance_ExcludedPath(t *testing.T) {
 	db := setupMaintenanceDB(t)
-	db.Exec(`UPDATE maintenance SET active = 1 WHERE id = 1`)
+	_, _ = db.Exec(`UPDATE maintenance SET active = 1 WHERE id = 1`)
 
 	mm := NewMaintenanceMode(db, "/healthz", "/static/")
 
@@ -98,7 +98,7 @@ func TestMaintenance_ExcludedPath(t *testing.T) {
 
 func TestMaintenance_CustomPage(t *testing.T) {
 	db := setupMaintenanceDB(t)
-	db.Exec(`UPDATE maintenance SET active = 1 WHERE id = 1`)
+	_, _ = db.Exec(`UPDATE maintenance SET active = 1 WHERE id = 1`)
 
 	mm := NewMaintenanceMode(db)
 	mm.SetPage([]byte(`<html><body>Custom maintenance</body></html>`))
@@ -148,14 +148,14 @@ func TestMaintenance_Toggle(t *testing.T) {
 	}
 
 	// Turn on.
-	db.Exec(`UPDATE maintenance SET active = 1 WHERE id = 1`)
+	_, _ = db.Exec(`UPDATE maintenance SET active = 1 WHERE id = 1`)
 	mm.reload()
 	if !mm.Active() {
 		t.Fatal("expected on after toggle")
 	}
 
 	// Turn off.
-	db.Exec(`UPDATE maintenance SET active = 0 WHERE id = 1`)
+	_, _ = db.Exec(`UPDATE maintenance SET active = 0 WHERE id = 1`)
 	mm.reload()
 	if mm.Active() {
 		t.Fatal("expected off after second toggle")
@@ -168,7 +168,7 @@ func TestMaintenance_SetDB(t *testing.T) {
 
 	// db2 has maintenance on.
 	db2 := setupMaintenanceDB(t)
-	db2.Exec(`UPDATE maintenance SET active = 1, message = 'DB swapped' WHERE id = 1`)
+	_, _ = db2.Exec(`UPDATE maintenance SET active = 1, message = 'DB swapped' WHERE id = 1`)
 
 	mm.SetDB(db2)
 
@@ -182,7 +182,7 @@ func TestMaintenance_SetDB(t *testing.T) {
 
 func TestMaintenance_APIPath(t *testing.T) {
 	db := setupMaintenanceDB(t)
-	db.Exec(`UPDATE maintenance SET active = 1 WHERE id = 1`)
+	_, _ = db.Exec(`UPDATE maintenance SET active = 1 WHERE id = 1`)
 
 	mm := NewMaintenanceMode(db)
 	handler := mm.Middleware(okHandler())

@@ -49,7 +49,7 @@ func ParseJWT(tokenStr, secret string) (*JWTClaims, error) {
 	var header struct {
 		Alg string `json:"alg"`
 	}
-	if err := json.Unmarshal(headerJSON, &header); err != nil {
+	if err = json.Unmarshal(headerJSON, &header); err != nil {
 		return nil, fmt.Errorf("parse header: %w", err)
 	}
 	if header.Alg != "HS256" {

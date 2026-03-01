@@ -1,0 +1,11 @@
+linters-settings:
+  govet:
+    shadow:
+      strict: false
+
+linters:
+  disable:
+    # HOROS convention: sentinel errors use ErrXxx (not XxxError for error types).
+    # This is a deliberate naming choice, not a linter violation.
+    - errname
+    # exportloopref removed: deprecated since Go 1.22 (loopvar)

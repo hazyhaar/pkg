@@ -64,23 +64,23 @@ func (s *Service) Send(to, subject, body string) error {
 	}
 	defer c.Close()
 
-	if err := c.Hello("localhost"); err != nil {
+	if err = c.Hello("localhost"); err != nil {
 		return fmt.Errorf("smtp hello: %w", err)
 	}
 
 	tlsCfg := &tls.Config{ServerName: s.cfg.Host}
-	if err := c.StartTLS(tlsCfg); err != nil {
+	if err = c.StartTLS(tlsCfg); err != nil {
 		return fmt.Errorf("smtp starttls: %w", err)
 	}
 
-	if err := c.Auth(&loginAuth{username: s.cfg.Username, password: s.cfg.Password}); err != nil {
+	if err = c.Auth(&loginAuth{username: s.cfg.Username, password: s.cfg.Password}); err != nil {
 		return fmt.Errorf("smtp auth: %w", err)
 	}
 
-	if err := c.Mail(s.cfg.From); err != nil {
+	if err = c.Mail(s.cfg.From); err != nil {
 		return fmt.Errorf("smtp mail from: %w", err)
 	}
-	if err := c.Rcpt(to); err != nil {
+	if err = c.Rcpt(to); err != nil {
 		return fmt.Errorf("smtp rcpt to: %w", err)
 	}
 

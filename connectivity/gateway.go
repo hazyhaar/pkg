@@ -63,7 +63,7 @@ func (r *Router) Gateway() http.Handler {
 		w.Header().Set("Content-Type", "application/octet-stream")
 		w.WriteHeader(http.StatusOK)
 		if resp != nil {
-			w.Write(resp)
+			_, _ = w.Write(resp)
 		}
 	})
 }

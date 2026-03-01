@@ -50,21 +50,6 @@ func freePort(t *testing.T) int {
 	return port
 }
 
-// stubFactory returns a ChannelFactory that creates a stub channel.
-// The stub emits one message then blocks. If onMessage is non-nil it's
-// called for each outbound Send.
-func stubFactory(onMessage func(Message)) ChannelFactory {
-	return func(name string, config json.RawMessage) (Channel, error) {
-		return &stubChannel{
-			name:      name,
-			platform:  "stub",
-			closeCh:   make(chan struct{}),
-			inbound:   make(chan Message, 16),
-			onMessage: onMessage,
-		}, nil
-	}
-}
-
 type stubChannel struct {
 	name      string
 	platform  string
@@ -216,8 +201,8 @@ func TestAdmin_ListChannels(t *testing.T) {
 	admin := NewAdmin(db)
 	ctx := context.Background()
 
-	admin.UpsertChannel(ctx, "a", "webhook", true, nil)
-	admin.UpsertChannel(ctx, "b", "telegram", false, nil)
+	_ = admin.UpsertChannel(ctx, "a", "webhook", true, nil)
+	_ = admin.UpsertChannel(ctx, "b", "telegram", false, nil)
 
 	rows, err := admin.ListChannels(ctx)
 	if err != nil {
@@ -233,7 +218,7 @@ func TestAdmin_Delete(t *testing.T) {
 	admin := NewAdmin(db)
 	ctx := context.Background()
 
-	admin.UpsertChannel(ctx, "del", "webhook", true, nil)
+	_ = admin.UpsertChannel(ctx, "del", "webhook", true, nil)
 	if err := admin.DeleteChannel(ctx, "del"); err != nil {
 		t.Fatal(err)
 	}
@@ -256,7 +241,7 @@ func TestAdmin_SetEnabled(t *testing.T) {
 	admin := NewAdmin(db)
 	ctx := context.Background()
 
-	admin.UpsertChannel(ctx, "tog", "webhook", true, nil)
+	_ = admin.UpsertChannel(ctx, "tog", "webhook", true, nil)
 	if err := admin.SetEnabled(ctx, "tog", false); err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +256,7 @@ func TestAdmin_UpdateAuthState(t *testing.T) {
 	admin := NewAdmin(db)
 	ctx := context.Background()
 
-	admin.UpsertChannel(ctx, "auth", "whatsapp", true, nil)
+	_ = admin.UpsertChannel(ctx, "auth", "whatsapp", true, nil)
 	if err := admin.UpdateAuthState(ctx, "auth", json.RawMessage(`{"token":"abc"}`)); err != nil {
 		t.Fatal(err)
 	}
@@ -304,7 +289,7 @@ func TestDispatcher_Reload_StartsChannel(t *testing.T) {
 	})
 	d.RegisterPlatform("webhook", factory)
 
-	db.Exec(`INSERT INTO channels (name, platform, enabled) VALUES ('wh1', 'webhook', 1)`)
+	_, _ = db.Exec(`INSERT INTO channels (name, platform, enabled) VALUES ('wh1', 'webhook', 1)`)
 	if err := d.Reload(ctx, db); err != nil {
 		t.Fatal(err)
 	}
@@ -334,9 +319,9 @@ func TestDispatcher_Reload_UnchangedPreservesChannel(t *testing.T) {
 	})
 	d.RegisterPlatform("webhook", factory)
 
-	db.Exec(`INSERT INTO channels (name, platform, enabled) VALUES ('wh1', 'webhook', 1)`)
-	d.Reload(ctx, db)
-	d.Reload(ctx, db) // Second reload — same fingerprint.
+	_, _ = db.Exec(`INSERT INTO channels (name, platform, enabled) VALUES ('wh1', 'webhook', 1)`)
+	_ = d.Reload(ctx, db)
+	_ = d.Reload(ctx, db) // Second reload — same fingerprint.
 	defer d.Close()
 
 	if c := atomic.LoadInt32(&factoryCalls); c != 1 {
@@ -363,12 +348,12 @@ func TestDispatcher_Reload_ChangedConfigRestartsChannel(t *testing.T) {
 	})
 	d.RegisterPlatform("webhook", factory)
 
-	db.Exec(`INSERT INTO channels (name, platform, enabled, config) VALUES ('wh1', 'webhook', 1, '{"listen_addr":":8080"}')`)
-	d.Reload(ctx, db)
+	_, _ = db.Exec(`INSERT INTO channels (name, platform, enabled, config) VALUES ('wh1', 'webhook', 1, '{"listen_addr":":8080"}')`)
+	_ = d.Reload(ctx, db)
 
 	// Change config.
-	db.Exec(`UPDATE channels SET config = '{"listen_addr":":9090"}' WHERE name = 'wh1'`)
-	d.Reload(ctx, db)
+	_, _ = db.Exec(`UPDATE channels SET config = '{"listen_addr":":9090"}' WHERE name = 'wh1'`)
+	_ = d.Reload(ctx, db)
 	defer d.Close()
 
 	if c := atomic.LoadInt32(&factoryCalls); c != 2 {
@@ -390,12 +375,12 @@ func TestDispatcher_Reload_DisabledClosesChannel(t *testing.T) {
 	})
 	d.RegisterPlatform("webhook", factory)
 
-	db.Exec(`INSERT INTO channels (name, platform, enabled) VALUES ('wh1', 'webhook', 1)`)
-	d.Reload(ctx, db)
+	_, _ = db.Exec(`INSERT INTO channels (name, platform, enabled) VALUES ('wh1', 'webhook', 1)`)
+	_ = d.Reload(ctx, db)
 
 	// Disable.
-	db.Exec(`UPDATE channels SET enabled = 0 WHERE name = 'wh1'`)
-	d.Reload(ctx, db)
+	_, _ = db.Exec(`UPDATE channels SET enabled = 0 WHERE name = 'wh1'`)
+	_ = d.Reload(ctx, db)
 	defer d.Close()
 
 	if atomic.LoadInt32(&ch.closed) != 1 {
@@ -417,11 +402,11 @@ func TestDispatcher_Reload_RemovedClosesChannel(t *testing.T) {
 	})
 	d.RegisterPlatform("webhook", factory)
 
-	db.Exec(`INSERT INTO channels (name, platform, enabled) VALUES ('wh1', 'webhook', 1)`)
-	d.Reload(ctx, db)
+	_, _ = db.Exec(`INSERT INTO channels (name, platform, enabled) VALUES ('wh1', 'webhook', 1)`)
+	_ = d.Reload(ctx, db)
 
-	db.Exec(`DELETE FROM channels WHERE name = 'wh1'`)
-	d.Reload(ctx, db)
+	_, _ = db.Exec(`DELETE FROM channels WHERE name = 'wh1'`)
+	_ = d.Reload(ctx, db)
 	defer d.Close()
 
 	if atomic.LoadInt32(&ch.closed) != 1 {
@@ -457,8 +442,8 @@ func TestDispatcher_Status(t *testing.T) {
 		return nil, nil
 	})
 	d.RegisterPlatform("webhook", factory)
-	db.Exec(`INSERT INTO channels (name, platform, enabled) VALUES ('wh1', 'webhook', 1)`)
-	d.Reload(ctx, db)
+	_, _ = db.Exec(`INSERT INTO channels (name, platform, enabled) VALUES ('wh1', 'webhook', 1)`)
+	_ = d.Reload(ctx, db)
 	defer d.Close()
 
 	st, ok := d.Status("wh1")
@@ -495,8 +480,8 @@ func TestDispatcher_InboundHandler(t *testing.T) {
 	})
 	d.RegisterPlatform("webhook", factory)
 
-	db.Exec(`INSERT INTO channels (name, platform, enabled) VALUES ('wh1', 'webhook', 1)`)
-	d.Reload(ctx, db)
+	_, _ = db.Exec(`INSERT INTO channels (name, platform, enabled) VALUES ('wh1', 'webhook', 1)`)
+	_ = d.Reload(ctx, db)
 
 	// Push an inbound message into the stub channel.
 	ch.inbound <- Message{
@@ -536,8 +521,8 @@ func TestDispatcher_Close_WaitsForGoroutines(t *testing.T) {
 	})
 	d.RegisterPlatform("webhook", factory)
 
-	db.Exec(`INSERT INTO channels (name, platform, enabled) VALUES ('wh1', 'webhook', 1)`)
-	d.Reload(ctx, db)
+	_, _ = db.Exec(`INSERT INTO channels (name, platform, enabled) VALUES ('wh1', 'webhook', 1)`)
+	_ = d.Reload(ctx, db)
 
 	// Close should not hang (goroutines exit via lifecycle ctx cancel).
 	done := make(chan struct{})
@@ -575,9 +560,9 @@ func TestDispatcher_ListChannels(t *testing.T) {
 	})
 	d.RegisterPlatform("webhook", factory)
 
-	db.Exec(`INSERT INTO channels (name, platform, enabled) VALUES ('a', 'webhook', 1)`)
-	db.Exec(`INSERT INTO channels (name, platform, enabled) VALUES ('b', 'webhook', 1)`)
-	d.Reload(ctx, db)
+	_, _ = db.Exec(`INSERT INTO channels (name, platform, enabled) VALUES ('a', 'webhook', 1)`)
+	_, _ = db.Exec(`INSERT INTO channels (name, platform, enabled) VALUES ('b', 'webhook', 1)`)
+	_ = d.Reload(ctx, db)
 	defer d.Close()
 
 	count := 0
@@ -606,8 +591,8 @@ func TestDispatcher_Inspect(t *testing.T) {
 	})
 	d.RegisterPlatform("webhook", factory)
 
-	db.Exec(`INSERT INTO channels (name, platform, enabled) VALUES ('wh1', 'webhook', 1)`)
-	d.Reload(ctx, db)
+	_, _ = db.Exec(`INSERT INTO channels (name, platform, enabled) VALUES ('wh1', 'webhook', 1)`)
+	_ = d.Reload(ctx, db)
 	defer d.Close()
 
 	info, ok := d.Inspect("wh1")
@@ -700,7 +685,9 @@ func TestWebhook_Listen_AcceptsValidPost(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	body := `{"text":"hello","sender_id":"user1"}`
-	resp, err := http.Post(fmt.Sprintf("http://127.0.0.1:%d/hook", port), "application/json", strings.NewReader(body))
+	postReq, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, fmt.Sprintf("http://127.0.0.1:%d/hook", port), strings.NewReader(body))
+	postReq.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(postReq)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -742,7 +729,8 @@ func TestWebhook_Listen_RejectsNonPost(t *testing.T) {
 	ch.Listen(ctx)
 	time.Sleep(100 * time.Millisecond)
 
-	resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/hook", port))
+	getReq, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/hook", port), nil)
+	resp, err := http.DefaultClient.Do(getReq)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -770,7 +758,9 @@ func TestWebhook_Listen_HMAC_RejectsInvalid(t *testing.T) {
 
 	// POST without HMAC signature.
 	body := `{"text":"hello"}`
-	resp, err := http.Post(fmt.Sprintf("http://127.0.0.1:%d/hook", port), "application/json", strings.NewReader(body))
+	postReq, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, fmt.Sprintf("http://127.0.0.1:%d/hook", port), strings.NewReader(body))
+	postReq.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(postReq)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -783,7 +773,7 @@ func TestWebhook_Listen_HMAC_RejectsInvalid(t *testing.T) {
 func TestWebhook_Listen_HMAC_AcceptsValid(t *testing.T) {
 	port := freePort(t)
 	secret := "test-secret-key"
-	cfg := json.RawMessage(fmt.Sprintf(`{"listen_addr":"127.0.0.1:%d","path":"/hook","secret":"%s"}`, port, secret))
+	cfg := json.RawMessage(fmt.Sprintf(`{"listen_addr":"127.0.0.1:%d","path":"/hook","secret":%q}`, port, secret))
 
 	factory := WebhookFactory()
 	ch, err := factory("test-wh", cfg)
@@ -802,7 +792,7 @@ func TestWebhook_Listen_HMAC_AcceptsValid(t *testing.T) {
 	mac.Write(body)
 	sig := "sha256=" + hex.EncodeToString(mac.Sum(nil))
 
-	req, _ := http.NewRequest(http.MethodPost, fmt.Sprintf("http://127.0.0.1:%d/hook", port), strings.NewReader(string(body)))
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, fmt.Sprintf("http://127.0.0.1:%d/hook", port), strings.NewReader(string(body)))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Signature-256", sig)
 
@@ -846,7 +836,9 @@ func TestWebhook_Listen_DoubleCallDoesNotPanic(t *testing.T) {
 
 	// Server should still be functional.
 	body := `{"text":"ok"}`
-	resp, err := http.Post(fmt.Sprintf("http://127.0.0.1:%d/hook", port), "application/json", strings.NewReader(body))
+	postReq, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, fmt.Sprintf("http://127.0.0.1:%d/hook", port), strings.NewReader(body))
+	postReq.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(postReq)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -985,7 +977,7 @@ func TestWatch_DetectsChanges(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { writerDB.Close() })
-	if err := Init(writerDB); err != nil {
+	if err = Init(writerDB); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1018,7 +1010,7 @@ func TestWatch_DetectsChanges(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Insert via writer.
-	writerDB.Exec(`INSERT INTO channels (name, platform, enabled) VALUES ('wh1', 'webhook', 1)`)
+	_, _ = writerDB.Exec(`INSERT INTO channels (name, platform, enabled) VALUES ('wh1', 'webhook', 1)`)
 	time.Sleep(300 * time.Millisecond)
 
 	if c := atomic.LoadInt32(&factoryCalls); c < 1 {
@@ -1116,8 +1108,8 @@ func TestDispatcher_MaxConcurrent(t *testing.T) {
 	d := NewDispatcher(handler, WithMaxConcurrent(2))
 	d.RegisterPlatform("webhook", factory)
 
-	db.Exec(`INSERT INTO channels (name, platform, enabled) VALUES ('wh1', 'webhook', 1)`)
-	d.Reload(ctx, db)
+	_, _ = db.Exec(`INSERT INTO channels (name, platform, enabled) VALUES ('wh1', 'webhook', 1)`)
+	_ = d.Reload(ctx, db)
 
 	// Send 5 messages quickly.
 	for i := 0; i < 5; i++ {

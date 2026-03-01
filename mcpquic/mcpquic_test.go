@@ -2,6 +2,7 @@ package mcpquic
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -205,13 +206,13 @@ func TestH3TLSConfig(t *testing.T) {
 func TestClient_NotConnected(t *testing.T) {
 	c := NewClient("localhost:1234", nil)
 
-	if _, err := c.ListTools(nil); err == nil {
+	if _, err := c.ListTools(context.TODO()); err == nil {
 		t.Fatal("expected error when not connected")
 	}
-	if _, err := c.CallTool(nil, "test", nil); err == nil {
+	if _, err := c.CallTool(context.TODO(), "test", nil); err == nil {
 		t.Fatal("expected error when not connected")
 	}
-	if err := c.Ping(nil); err == nil {
+	if err := c.Ping(context.TODO()); err == nil {
 		t.Fatal("expected error when not connected")
 	}
 }

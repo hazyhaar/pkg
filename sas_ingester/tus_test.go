@@ -40,7 +40,7 @@ func TestTusUploadCRUD(t *testing.T) {
 	}
 
 	// Update offset.
-	if err := s.UpdateTusOffset("tus_001", 512); err != nil {
+	if err = s.UpdateTusOffset("tus_001", 512); err != nil {
 		t.Fatal(err)
 	}
 	got, _ = s.GetTusUpload("tus_001")
@@ -49,7 +49,7 @@ func TestTusUploadCRUD(t *testing.T) {
 	}
 
 	// Complete.
-	if err := s.CompleteTusUpload("tus_001"); err != nil {
+	if err = s.CompleteTusUpload("tus_001"); err != nil {
 		t.Fatal(err)
 	}
 	got, _ = s.GetTusUpload("tus_001")
@@ -83,7 +83,7 @@ func TestTusHandler_CreateAndPatch(t *testing.T) {
 
 	// Ensure dossier exists.
 	now := time.Now().UTC().Format(time.RFC3339)
-	s.CreateDossier(&Dossier{ID: "dos_tus", OwnerJWTSub: "u", CreatedAt: now})
+	_ = s.CreateDossier(&Dossier{ID: "dos_tus", OwnerJWTSub: "u", CreatedAt: now})
 
 	seq := 0
 	gen := func() string {
@@ -153,7 +153,7 @@ func TestTusHandler_OffsetMismatch(t *testing.T) {
 	cfg.ChunksDir = t.TempDir()
 
 	now := time.Now().UTC().Format(time.RFC3339)
-	s.CreateDossier(&Dossier{ID: "dos_tus2", OwnerJWTSub: "u", CreatedAt: now})
+	_ = s.CreateDossier(&Dossier{ID: "dos_tus2", OwnerJWTSub: "u", CreatedAt: now})
 
 	h := NewTusHandler(s, cfg, func() string { return "tus_mismatch" })
 

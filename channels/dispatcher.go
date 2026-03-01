@@ -273,12 +273,12 @@ func (d *Dispatcher) dispatch(ctx context.Context, name string, ch Channel, wg *
 				continue
 			}
 
-			for _, resp := range responses {
-				resp.ChannelName = name
-				resp.Direction = Outbound
-				if err := ch.Send(ctx, resp); err != nil {
+			for i := range responses {
+				responses[i].ChannelName = name
+				responses[i].Direction = Outbound
+				if err := ch.Send(ctx, responses[i]); err != nil {
 					d.logger.Error("send response failed",
-						"channel", name, "recipient", resp.RecipientID, "error", err)
+						"channel", name, "recipient", responses[i].RecipientID, "error", err)
 				}
 			}
 		}

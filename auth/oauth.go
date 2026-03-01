@@ -46,7 +46,11 @@ func FetchGoogleUser(ctx context.Context, oauthCfg *oauth2.Config, code string) 
 	}
 
 	client := oauthCfg.Client(ctx, token)
-	resp, err := client.Get("https://www.googleapis.com/oauth2/v2/userinfo")
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://www.googleapis.com/oauth2/v2/userinfo", nil)
+	if err != nil {
+		return nil, nil, fmt.Errorf("create userinfo request: %w", err)
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, nil, fmt.Errorf("fetch google userinfo: %w", err)
 	}

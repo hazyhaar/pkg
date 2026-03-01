@@ -94,7 +94,7 @@ func TestE2E_FullRoundTrip(t *testing.T) {
 	}
 
 	var ctxResult map[string]any
-	json.Unmarshal(resp, &ctxResult)
+	_ = json.Unmarshal(resp, &ctxResult)
 	dossierID, ok := ctxResult["dossier_id"].(string)
 	if !ok || dossierID == "" {
 		t.Fatalf("no dossier_id in response: %v", ctxResult)
@@ -122,7 +122,7 @@ func TestE2E_FullRoundTrip(t *testing.T) {
 	}
 
 	var uploadResult map[string]any
-	json.Unmarshal(resp, &uploadResult)
+	_ = json.Unmarshal(resp, &uploadResult)
 	sha256, ok := uploadResult["sha256"].(string)
 	if !ok || sha256 == "" {
 		t.Fatalf("no sha256 in upload result: %v", uploadResult)
@@ -144,7 +144,7 @@ func TestE2E_FullRoundTrip(t *testing.T) {
 	}
 
 	var queryResult map[string]any
-	json.Unmarshal(resp, &queryResult)
+	_ = json.Unmarshal(resp, &queryResult)
 	hasMd, _ := queryResult["has_markdown"].(bool)
 	if !hasMd {
 		t.Error("expected has_markdown=true after upload with MarkdownConverter")
@@ -162,7 +162,7 @@ func TestE2E_FullRoundTrip(t *testing.T) {
 	}
 
 	var mdResult map[string]any
-	json.Unmarshal(resp, &mdResult)
+	_ = json.Unmarshal(resp, &mdResult)
 	md, _ := mdResult["markdown"].(string)
 	if md == "" {
 		t.Error("expected non-empty markdown")
@@ -179,7 +179,7 @@ func TestE2E_FullRoundTrip(t *testing.T) {
 	}
 
 	var listResult map[string]any
-	json.Unmarshal(resp, &listResult)
+	_ = json.Unmarshal(resp, &listResult)
 	count, _ := listResult["count"].(float64)
 	if count != 1 {
 		t.Errorf("list count = %v, want 1", count)
@@ -208,7 +208,7 @@ func TestE2E_AuthRejection(t *testing.T) {
 
 	t.Run("revoked_key", func(t *testing.T) {
 		clearKey, _, _ := keyStore.Generate("e2e_revoked", "user_r", "Revoked", []string{"sas_ingester"}, 0)
-		keyStore.Revoke("e2e_revoked")
+		_ = keyStore.Revoke("e2e_revoked")
 
 		_, err := router.Call(context.Background(), "sas_create_context",
 			mustJSON(map[string]any{"horoskey": clearKey, "name": "test"}))
@@ -220,7 +220,7 @@ func TestE2E_AuthRejection(t *testing.T) {
 	t.Run("expired_key", func(t *testing.T) {
 		clearKey, _, _ := keyStore.Generate("e2e_expired", "user_x", "Expired", []string{"sas_ingester"}, 0)
 		past := time.Now().UTC().Add(-time.Hour).Format(time.RFC3339)
-		keyStore.SetExpiry("e2e_expired", past)
+		_ = keyStore.SetExpiry("e2e_expired", past)
 
 		_, err := router.Call(context.Background(), "sas_create_context",
 			mustJSON(map[string]any{"horoskey": clearKey, "name": "test"}))
@@ -251,7 +251,7 @@ func TestE2E_OwnerSubAuth(t *testing.T) {
 	}
 
 	var result map[string]any
-	json.Unmarshal(resp, &result)
+	_ = json.Unmarshal(resp, &result)
 	dossierID := result["dossier_id"].(string)
 
 	d, _ := ing.Store.GetDossier(dossierID)
@@ -270,7 +270,7 @@ func TestE2E_Dedup(t *testing.T) {
 	resp, _ := router.Call(context.Background(), "sas_create_context",
 		mustJSON(map[string]any{"horoskey": clearKey, "name": "dedup test"}))
 	var ctx map[string]any
-	json.Unmarshal(resp, &ctx)
+	_ = json.Unmarshal(resp, &ctx)
 	dossierID := ctx["dossier_id"].(string)
 
 	fileContent := []byte("duplicate content for dedup test")
@@ -294,8 +294,8 @@ func TestE2E_Dedup(t *testing.T) {
 	}
 
 	var r1, r2 map[string]any
-	json.Unmarshal(resp1, &r1)
-	json.Unmarshal(resp2, &r2)
+	_ = json.Unmarshal(resp1, &r1)
+	_ = json.Unmarshal(resp2, &r2)
 
 	// Same SHA256.
 	if r1["sha256"] != r2["sha256"] {

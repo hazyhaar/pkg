@@ -23,14 +23,14 @@ func setupTestDB(t *testing.T) *sql.DB {
 	return db
 }
 
-func setupTestLimiter(t *testing.T, opts ...Option) (*sql.DB, *Limiter) {
+func setupTestLimiter(t *testing.T, opts ...Option) *Limiter {
 	t.Helper()
 	db := setupTestDB(t)
 	l := New(db, opts...)
 	if err := l.Init(); err != nil {
 		t.Fatal(err)
 	}
-	return db, l
+	return l
 }
 
 func TestInit_CreatesTable(t *testing.T) {
@@ -58,7 +58,7 @@ func TestInit_Idempotent(t *testing.T) {
 }
 
 func TestAllow_UnderLimit(t *testing.T) {
-	_, l := setupTestLimiter(t)
+	l := setupTestLimiter(t)
 	ctx := context.Background()
 
 	for i := 0; i < 5; i++ {
@@ -69,11 +69,11 @@ func TestAllow_UnderLimit(t *testing.T) {
 }
 
 func TestAllow_ExceedsLimit(t *testing.T) {
-	_, l := setupTestLimiter(t)
+	l := setupTestLimiter(t)
 	ctx := context.Background()
 
 	for i := 0; i < 5; i++ {
-		l.Allow(ctx, "test-key", 5, time.Minute)
+		_ = l.Allow(ctx, "test-key", 5, time.Minute)
 	}
 
 	err := l.Allow(ctx, "test-key", 5, time.Minute)
@@ -83,12 +83,12 @@ func TestAllow_ExceedsLimit(t *testing.T) {
 }
 
 func TestAllow_DifferentKeys_Independent(t *testing.T) {
-	_, l := setupTestLimiter(t)
+	l := setupTestLimiter(t)
 	ctx := context.Background()
 
 	// Exhaust key-a.
 	for i := 0; i < 3; i++ {
-		l.Allow(ctx, "key-a", 3, time.Minute)
+		_ = l.Allow(ctx, "key-a", 3, time.Minute)
 	}
 	if err := l.Allow(ctx, "key-a", 3, time.Minute); !errors.Is(err, ErrRateLimited) {
 		t.Fatal("key-a should be rate limited")
@@ -102,12 +102,12 @@ func TestAllow_DifferentKeys_Independent(t *testing.T) {
 
 func TestAllow_WindowExpiry(t *testing.T) {
 	now := time.Now()
-	_, l := setupTestLimiter(t, WithClock(func() time.Time { return now }))
+	l := setupTestLimiter(t, WithClock(func() time.Time { return now }))
 	ctx := context.Background()
 
 	// Exhaust the limit.
 	for i := 0; i < 3; i++ {
-		l.Allow(ctx, "test-key", 3, 10*time.Second)
+		_ = l.Allow(ctx, "test-key", 3, 10*time.Second)
 	}
 	if err := l.Allow(ctx, "test-key", 3, 10*time.Second); !errors.Is(err, ErrRateLimited) {
 		t.Fatal("should be rate limited")
@@ -121,16 +121,16 @@ func TestAllow_WindowExpiry(t *testing.T) {
 }
 
 func TestAllow_DBRuleOverridesDefault(t *testing.T) {
-	_, l := setupTestLimiter(t)
+	l := setupTestLimiter(t)
 	ctx := context.Background()
 
 	// Set a DB rule with limit=2.
-	l.AddRule("strict-key", 2, 60)
-	l.Reload()
+	_ = l.AddRule("strict-key", 2, 60)
+	_ = l.Reload()
 
 	// programmatic limit is 100, but DB says 2.
-	l.Allow(ctx, "strict-key", 100, time.Minute)
-	l.Allow(ctx, "strict-key", 100, time.Minute)
+	_ = l.Allow(ctx, "strict-key", 100, time.Minute)
+	_ = l.Allow(ctx, "strict-key", 100, time.Minute)
 	err := l.Allow(ctx, "strict-key", 100, time.Minute)
 	if !errors.Is(err, ErrRateLimited) {
 		t.Fatal("DB rule should override programmatic limit")
@@ -138,11 +138,11 @@ func TestAllow_DBRuleOverridesDefault(t *testing.T) {
 }
 
 func TestAddRule_Upsert(t *testing.T) {
-	_, l := setupTestLimiter(t)
+	l := setupTestLimiter(t)
 
-	l.AddRule("key", 10, 60)
-	l.AddRule("key", 20, 120) // Update.
-	l.Reload()
+	_ = l.AddRule("key", 10, 60)
+	_ = l.AddRule("key", 20, 120) // Update.
+	_ = l.Reload()
 
 	l.mu.RLock()
 	cfg := l.rules["key"]
@@ -154,12 +154,12 @@ func TestAddRule_Upsert(t *testing.T) {
 }
 
 func TestRemoveRule(t *testing.T) {
-	_, l := setupTestLimiter(t)
+	l := setupTestLimiter(t)
 
-	l.AddRule("key", 2, 60)
-	l.Reload()
-	l.RemoveRule("key")
-	l.Reload()
+	_ = l.AddRule("key", 2, 60)
+	_ = l.Reload()
+	_ = l.RemoveRule("key")
+	_ = l.Reload()
 
 	l.mu.RLock()
 	_, exists := l.rules["key"]
@@ -171,11 +171,11 @@ func TestRemoveRule(t *testing.T) {
 }
 
 func TestListRules(t *testing.T) {
-	_, l := setupTestLimiter(t)
+	l := setupTestLimiter(t)
 
-	l.AddRule("a", 10, 60)
-	l.AddRule("b", 20, 120)
-	l.RemoveRule("b")
+	_ = l.AddRule("a", 10, 60)
+	_ = l.AddRule("b", 20, 120)
+	_ = l.RemoveRule("b")
 
 	entries, err := l.ListRules()
 	if err != nil {
@@ -195,7 +195,7 @@ func TestListRules(t *testing.T) {
 }
 
 func TestHTTPMiddleware_AllowsUnderLimit(t *testing.T) {
-	_, l := setupTestLimiter(t)
+	l := setupTestLimiter(t)
 
 	handler := l.HTTPMiddleware(5, time.Minute)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -212,7 +212,7 @@ func TestHTTPMiddleware_AllowsUnderLimit(t *testing.T) {
 }
 
 func TestHTTPMiddleware_BlocksOverLimit(t *testing.T) {
-	_, l := setupTestLimiter(t)
+	l := setupTestLimiter(t)
 
 	handler := l.HTTPMiddleware(2, time.Minute)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -240,7 +240,7 @@ func TestHTTPMiddleware_BlocksOverLimit(t *testing.T) {
 }
 
 func TestHTTPMiddleware_DifferentIPs_Independent(t *testing.T) {
-	_, l := setupTestLimiter(t)
+	l := setupTestLimiter(t)
 
 	handler := l.HTTPMiddleware(1, time.Minute)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -266,7 +266,7 @@ func TestHTTPMiddleware_DifferentIPs_Independent(t *testing.T) {
 }
 
 func TestMCPMiddleware(t *testing.T) {
-	_, l := setupTestLimiter(t)
+	l := setupTestLimiter(t)
 	ctx := context.Background()
 
 	mw := l.MCPMiddleware(2, time.Minute)
@@ -283,7 +283,7 @@ func TestMCPMiddleware(t *testing.T) {
 }
 
 func TestAllowN(t *testing.T) {
-	_, l := setupTestLimiter(t)
+	l := setupTestLimiter(t)
 	ctx := context.Background()
 
 	// Use 3 tokens at once.
@@ -322,10 +322,10 @@ func TestExtractIP_RemoteAddr(t *testing.T) {
 
 func TestGC_RemovesExpiredBuckets(t *testing.T) {
 	now := time.Now()
-	_, l := setupTestLimiter(t, WithClock(func() time.Time { return now }))
+	l := setupTestLimiter(t, WithClock(func() time.Time { return now }))
 	ctx := context.Background()
 
-	l.Allow(ctx, "ephemeral", 100, 5*time.Second)
+	_ = l.Allow(ctx, "ephemeral", 100, 5*time.Second)
 
 	// Advance past window.
 	now = now.Add(10 * time.Second)

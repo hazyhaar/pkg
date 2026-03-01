@@ -2,6 +2,7 @@ package trace
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -98,7 +99,13 @@ func (rs *RemoteStore) flushBatch(batch []*Entry) {
 		return
 	}
 
-	resp, err := rs.client.Post(rs.url, "application/json", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, rs.url, bytes.NewReader(body))
+	if err != nil {
+		slog.Error("trace remote: create request", "error", err, "url", rs.url)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := rs.client.Do(req)
 	if err != nil {
 		slog.Error("trace remote: post", "error", err, "url", rs.url, "entries", len(batch))
 		return

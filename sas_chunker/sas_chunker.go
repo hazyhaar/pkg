@@ -146,12 +146,12 @@ func Split(srcPath, outDir string, chunkSize int64, progress ProgressFunc) (*Man
 
 	// Hash the whole file.
 	fileHasher := sha256.New()
-	if _, err := io.Copy(fileHasher, src); err != nil {
+	if _, err = io.Copy(fileHasher, src); err != nil {
 		return nil, fmt.Errorf("hash source: %w", err)
 	}
 	fileHash := hex.EncodeToString(fileHasher.Sum(nil))
 
-	if _, err := src.Seek(0, io.SeekStart); err != nil {
+	if _, err = src.Seek(0, io.SeekStart); err != nil {
 		return nil, fmt.Errorf("seek source: %w", err)
 	}
 
@@ -160,7 +160,7 @@ func Split(srcPath, outDir string, chunkSize int64, progress ProgressFunc) (*Man
 		totalChunks++
 	}
 
-	if err := os.MkdirAll(outDir, 0755); err != nil {
+	if err = os.MkdirAll(outDir, 0755); err != nil {
 		return nil, fmt.Errorf("create output dir: %w", err)
 	}
 
@@ -178,7 +178,8 @@ func Split(srcPath, outDir string, chunkSize int64, progress ProgressFunc) (*Man
 	var offset int64
 
 	for i := 0; i < totalChunks; i++ {
-		n, err := io.ReadFull(src, buf)
+		var n int
+		n, err = io.ReadFull(src, buf)
 		if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
 			return nil, fmt.Errorf("read chunk %d: %w", i, err)
 		}
@@ -190,7 +191,7 @@ func Split(srcPath, outDir string, chunkSize int64, progress ProgressFunc) (*Man
 
 		fileName := fmt.Sprintf("chunk_%05d.bin", i)
 		chunkPath := filepath.Join(outDir, fileName)
-		if err := os.WriteFile(chunkPath, data, 0644); err != nil {
+		if err = os.WriteFile(chunkPath, data, 0644); err != nil {
 			return nil, fmt.Errorf("write chunk %d: %w", i, err)
 		}
 
@@ -231,7 +232,7 @@ func Assemble(chunksDir, outPath string, progress ProgressFunc) error {
 	if err != nil {
 		return err
 	}
-	if err := validateChunkNames(chunksDir, manifest); err != nil {
+	if err = validateChunkNames(chunksDir, manifest); err != nil {
 		return err
 	}
 

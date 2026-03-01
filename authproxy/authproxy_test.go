@@ -23,7 +23,7 @@ func TestLoginHandler_Success(t *testing.T) {
 		if r.URL.Path != "/api/internal/auth/login" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"ok":    true,
 			"token": "jwt-test-token",
 		})
@@ -64,7 +64,7 @@ func TestLoginHandler_Success(t *testing.T) {
 
 func TestLoginHandler_InvalidCredentials(t *testing.T) {
 	bo := mockBO(t, func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"ok":    false,
 			"error": "invalid credentials",
 		})
@@ -131,7 +131,7 @@ func TestRegisterHandler_Success(t *testing.T) {
 		if r.URL.Path != "/api/internal/auth/register" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"ok":    true,
 			"flash": "Compte créé",
 		})
@@ -165,7 +165,7 @@ func TestRegisterHandler_Success(t *testing.T) {
 
 func TestRegisterHandler_Duplicate(t *testing.T) {
 	bo := mockBO(t, func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"ok":    false,
 			"error": "user already exists",
 			"code":  "user_exists",
@@ -209,9 +209,9 @@ func TestForgotPasswordHandler_Success(t *testing.T) {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
 		var body map[string]string
-		json.NewDecoder(r.Body).Decode(&body)
+		_ = json.NewDecoder(r.Body).Decode(&body)
 		gotOrigin = body["origin"]
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"ok":    true,
 			"flash": "Email envoyé",
 		})
@@ -251,7 +251,7 @@ func TestForgotPasswordHandler_Success(t *testing.T) {
 
 func TestForgotPasswordHandler_NeverExposesBO(t *testing.T) {
 	bo := mockBO(t, func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{"ok": true})
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 	})
 	defer bo.Close()
 
@@ -277,7 +277,7 @@ func TestResetPasswordHandler_Success(t *testing.T) {
 		if r.URL.Path != "/api/internal/auth/reset-password" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"ok":    true,
 			"flash": "Mot de passe réinitialisé",
 		})
@@ -391,7 +391,7 @@ func TestRequestOrigin(t *testing.T) {
 
 func TestResetPasswordHandler_NeverExposesBO(t *testing.T) {
 	bo := mockBO(t, func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{"ok": true})
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 	})
 	defer bo.Close()
 

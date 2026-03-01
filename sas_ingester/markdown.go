@@ -9,9 +9,34 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/hazyhaar/pkg/sas_chunker"
 )
+
+// extFromMIME returns a file extension for the given MIME type so that
+// downstream format detectors (e.g. docpipe) can identify the format
+// from the assembled temporary file path. Falls back to ".bin".
+func extFromMIME(mime string) string {
+	base := strings.SplitN(mime, ";", 2)[0]
+	base = strings.TrimSpace(strings.ToLower(base))
+	switch base {
+	case "text/markdown":
+		return ".md"
+	case "text/plain":
+		return ".txt"
+	case "text/html":
+		return ".html"
+	case "application/pdf":
+		return ".pdf"
+	case "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+		return ".docx"
+	case "application/vnd.oasis.opendocument.text":
+		return ".odt"
+	default:
+		return ".bin"
+	}
+}
 
 // KeyResolver resolves a horoskey (API key delivered to LLMs) to the owner
 // identity (JWT sub) for billing and authorization.
@@ -40,8 +65,9 @@ func (ing *Ingester) convertToMarkdown(ctx context.Context, sha256, dossierID, m
 
 	chunkDir := filepath.Join(ing.Config.ChunksDir, dossierID, sha256)
 
-	// Assemble chunks into a temporary file for the converter.
-	tmpFile := filepath.Join(chunkDir, "assembled.tmp")
+	// Assemble chunks into a temporary file whose extension matches the
+	// original format so that docpipe can detect it from the path.
+	tmpFile := filepath.Join(chunkDir, "assembled"+extFromMIME(mime))
 	if err := sas_chunker.Assemble(chunkDir, tmpFile, nil); err != nil {
 		return "", fmt.Errorf("assemble: %w", err)
 	}

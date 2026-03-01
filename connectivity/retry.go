@@ -2,25 +2,9 @@ package connectivity
 
 import (
 	"context"
-	"encoding/json"
 	"log/slog"
 	"time"
 )
-
-// retryConfig is parsed from the route config JSON.
-type retryConfig struct {
-	TimeoutMs  int64 `json:"timeout_ms"`
-	MaxRetries int   `json:"max_retries"`
-	BackoffMs  int64 `json:"backoff_ms"`
-}
-
-func parseRetryConfig(cfg json.RawMessage) retryConfig {
-	var rc retryConfig
-	if len(cfg) > 0 {
-		_ = json.Unmarshal(cfg, &rc)
-	}
-	return rc
-}
 
 // WithTimeout returns a HandlerMiddleware that applies a per-call timeout
 // derived from the route config's timeout_ms field. If timeout_ms is zero

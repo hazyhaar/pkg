@@ -170,7 +170,9 @@ CREATE INDEX IF NOT EXISTS idx_api_keys_prefix   ON api_keys(prefix);
 			return fmt.Errorf("add dossier_id column: %w", err)
 		}
 	}
-	s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_api_keys_dossier ON api_keys(dossier_id)`)
+	if _, err := s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_api_keys_dossier ON api_keys(dossier_id)`); err != nil {
+		return fmt.Errorf("create dossier index: %w", err)
+	}
 
 	return nil
 }
@@ -190,7 +192,8 @@ func (s *Store) Generate(id, ownerID, name string, services []string, rateLimit 
 
 	// Enforce per-user key limit if configured.
 	if s.maxKeys > 0 {
-		n, err := s.Count(ownerID)
+		var n int
+		n, err = s.Count(ownerID)
 		if err != nil {
 			return "", nil, fmt.Errorf("count keys: %w", err)
 		}
@@ -206,7 +209,7 @@ func (s *Store) Generate(id, ownerID, name string, services []string, rateLimit 
 
 	// Generate 32 random bytes → 64 hex chars.
 	var raw [32]byte
-	if _, err := rand.Read(raw[:]); err != nil {
+	if _, err = rand.Read(raw[:]); err != nil {
 		return "", nil, fmt.Errorf("generate random: %w", err)
 	}
 	clearKey = Prefix + hex.EncodeToString(raw[:])

@@ -33,12 +33,13 @@ func setupTestRegistry(t *testing.T) (*sql.DB, *Registry) {
 }
 
 // insertTool is a test helper that inserts a tool directly into the registry table.
-func insertTool(t *testing.T, db *sql.DB, name, category, desc, schema, handlerType, handlerConfig, mode string) {
+func insertTool(t *testing.T, db *sql.DB, name, category, desc, handlerType, handlerConfig, mode string) {
 	t.Helper()
+	const defaultSchema = `{"type":"object"}`
 	_, err := db.Exec(`INSERT INTO mcp_tools_registry
 		(tool_name, tool_category, description, input_schema, handler_type, handler_config, mode)
 		VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		name, category, desc, schema, handlerType, handlerConfig, mode)
+		name, category, desc, defaultSchema, handlerType, handlerConfig, mode)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,11 +125,10 @@ func TestRegistryExecuteTool_NotFound(t *testing.T) {
 func TestReadonlyMode_SQLQuery_SelectAllowed(t *testing.T) {
 	db, reg := setupTestRegistry(t)
 	// Create a simple table to query.
-	db.Exec("CREATE TABLE users (id INTEGER, name TEXT)")
-	db.Exec("INSERT INTO users VALUES (1, 'alice')")
+	_, _ = db.Exec("CREATE TABLE users (id INTEGER, name TEXT)")
+	_, _ = db.Exec("INSERT INTO users VALUES (1, 'alice')")
 
-	insertTool(t, db, "list_users", "test", "list users", `{"type":"object"}`,
-		"sql_query", `{"query":"SELECT id, name FROM users","result_format":"array"}`, "readonly")
+	insertTool(t, db, "list_users", "test", "list users", "sql_query", `{"query":"SELECT id, name FROM users","result_format":"array"}`, "readonly")
 
 	if err := reg.LoadTools(context.Background()); err != nil {
 		t.Fatal(err)
@@ -145,10 +145,9 @@ func TestReadonlyMode_SQLQuery_SelectAllowed(t *testing.T) {
 
 func TestReadonlyMode_SQLQuery_WriteBlocked(t *testing.T) {
 	db, reg := setupTestRegistry(t)
-	db.Exec("CREATE TABLE users (id INTEGER, name TEXT)")
+	_, _ = db.Exec("CREATE TABLE users (id INTEGER, name TEXT)")
 
-	insertTool(t, db, "delete_users", "test", "delete users", `{"type":"object"}`,
-		"sql_query", `{"query":"DELETE FROM users"}`, "readonly")
+	insertTool(t, db, "delete_users", "test", "delete users", "sql_query", `{"query":"DELETE FROM users"}`, "readonly")
 
 	if err := reg.LoadTools(context.Background()); err != nil {
 		t.Fatal(err)
@@ -166,8 +165,7 @@ func TestReadonlyMode_SQLQuery_WriteBlocked(t *testing.T) {
 func TestReadonlyMode_SQLScript_Blocked(t *testing.T) {
 	db, reg := setupTestRegistry(t)
 
-	insertTool(t, db, "write_script", "test", "write script", `{"type":"object"}`,
-		"sql_script", `{"statements":[{"sql":"INSERT INTO t VALUES(1)"}]}`, "readonly")
+	insertTool(t, db, "write_script", "test", "write script", "sql_script", `{"statements":[{"sql":"INSERT INTO t VALUES(1)"}]}`, "readonly")
 
 	if err := reg.LoadTools(context.Background()); err != nil {
 		t.Fatal(err)
@@ -184,11 +182,10 @@ func TestReadonlyMode_SQLScript_Blocked(t *testing.T) {
 
 func TestReadonlyMode_ReadWrite_Allows_Write(t *testing.T) {
 	db, reg := setupTestRegistry(t)
-	db.Exec("CREATE TABLE counters (n INTEGER)")
-	db.Exec("INSERT INTO counters VALUES (0)")
+	_, _ = db.Exec("CREATE TABLE counters (n INTEGER)")
+	_, _ = db.Exec("INSERT INTO counters VALUES (0)")
 
-	insertTool(t, db, "update_counter", "test", "update counter", `{"type":"object"}`,
-		"sql_script", `{"statements":[{"sql":"UPDATE counters SET n = n + 1"}],"return":"affected_rows"}`, "readwrite")
+	insertTool(t, db, "update_counter", "test", "update counter", "sql_script", `{"statements":[{"sql":"UPDATE counters SET n = n + 1"}],"return":"affected_rows"}`, "readwrite")
 
 	if err := reg.LoadTools(context.Background()); err != nil {
 		t.Fatal(err)
@@ -231,10 +228,8 @@ func TestIsReadOnlySQL(t *testing.T) {
 func TestLoadTools_ModeField(t *testing.T) {
 	db, reg := setupTestRegistry(t)
 
-	insertTool(t, db, "ro_tool", "test", "read only tool", `{"type":"object"}`,
-		"sql_query", `{"query":"SELECT 1"}`, "readonly")
-	insertTool(t, db, "rw_tool", "test", "read write tool", `{"type":"object"}`,
-		"sql_query", `{"query":"SELECT 1"}`, "readwrite")
+	insertTool(t, db, "ro_tool", "test", "read only tool", "sql_query", `{"query":"SELECT 1"}`, "readonly")
+	insertTool(t, db, "rw_tool", "test", "read write tool", "sql_query", `{"query":"SELECT 1"}`, "readwrite")
 
 	if err := reg.LoadTools(context.Background()); err != nil {
 		t.Fatal(err)
@@ -262,17 +257,16 @@ func TestLoadTools_ModeField(t *testing.T) {
 func TestHistoryTrigger_Insert(t *testing.T) {
 	db, _ := setupTestRegistry(t)
 
-	insertTool(t, db, "my_tool", "cat", "desc", `{"type":"object"}`,
-		"sql_query", `{"query":"SELECT 1"}`, "readonly")
+	insertTool(t, db, "my_tool", "cat", "desc", "sql_query", `{"query":"SELECT 1"}`, "readonly")
 
 	var count int
-	db.QueryRow("SELECT COUNT(*) FROM mcp_tools_history WHERE tool_name = 'my_tool'").Scan(&count)
+	_ = db.QueryRow("SELECT COUNT(*) FROM mcp_tools_history WHERE tool_name = 'my_tool'").Scan(&count)
 	if count != 1 {
 		t.Fatalf("expected 1 history entry after INSERT, got %d", count)
 	}
 
 	var reason sql.NullString
-	db.QueryRow("SELECT change_reason FROM mcp_tools_history WHERE tool_name = 'my_tool'").Scan(&reason)
+	_ = db.QueryRow("SELECT change_reason FROM mcp_tools_history WHERE tool_name = 'my_tool'").Scan(&reason)
 	if !reason.Valid || reason.String != "created" {
 		t.Fatalf("expected change_reason='created', got %v", reason)
 	}
@@ -281,8 +275,7 @@ func TestHistoryTrigger_Insert(t *testing.T) {
 func TestHistoryTrigger_Update(t *testing.T) {
 	db, _ := setupTestRegistry(t)
 
-	insertTool(t, db, "my_tool", "cat", "desc v1", `{"type":"object"}`,
-		"sql_query", `{"query":"SELECT 1"}`, "readonly")
+	insertTool(t, db, "my_tool", "cat", "desc v1", "sql_query", `{"query":"SELECT 1"}`, "readonly")
 
 	// Update the tool description.
 	_, err := db.Exec("UPDATE mcp_tools_registry SET description = 'desc v2' WHERE tool_name = 'my_tool'")
@@ -291,21 +284,21 @@ func TestHistoryTrigger_Update(t *testing.T) {
 	}
 
 	var count int
-	db.QueryRow("SELECT COUNT(*) FROM mcp_tools_history WHERE tool_name = 'my_tool'").Scan(&count)
+	_ = db.QueryRow("SELECT COUNT(*) FROM mcp_tools_history WHERE tool_name = 'my_tool'").Scan(&count)
 	if count != 2 {
 		t.Fatalf("expected 2 history entries after INSERT+UPDATE, got %d", count)
 	}
 
 	// Check that version was auto-incremented.
 	var version int
-	db.QueryRow("SELECT version FROM mcp_tools_registry WHERE tool_name = 'my_tool'").Scan(&version)
+	_ = db.QueryRow("SELECT version FROM mcp_tools_registry WHERE tool_name = 'my_tool'").Scan(&version)
 	if version != 2 {
 		t.Fatalf("expected version=2 after update, got %d", version)
 	}
 
 	// Check that history captured version 2.
 	var histVersion int
-	db.QueryRow("SELECT version FROM mcp_tools_history WHERE tool_name = 'my_tool' ORDER BY version DESC LIMIT 1").Scan(&histVersion)
+	_ = db.QueryRow("SELECT version FROM mcp_tools_history WHERE tool_name = 'my_tool' ORDER BY version DESC LIMIT 1").Scan(&histVersion)
 	if histVersion != 2 {
 		t.Fatalf("expected history version=2, got %d", histVersion)
 	}
@@ -325,7 +318,7 @@ func TestDBPolicy_NoRules_AllowAll(t *testing.T) {
 
 func TestDBPolicy_DenyRule_Blocks(t *testing.T) {
 	db, _ := setupTestRegistry(t)
-	db.Exec("INSERT INTO mcp_tool_policy (tool_name, role, effect) VALUES ('secret_tool', '*', 'deny')")
+	_, _ = db.Exec("INSERT INTO mcp_tool_policy (tool_name, role, effect) VALUES ('secret_tool', '*', 'deny')")
 
 	policy := NewDBPolicy(db)
 	err := policy(context.Background(), "secret_tool")
@@ -339,7 +332,7 @@ func TestDBPolicy_DenyRule_Blocks(t *testing.T) {
 
 func TestDBPolicy_AllowRule_MatchesRole(t *testing.T) {
 	db, _ := setupTestRegistry(t)
-	db.Exec("INSERT INTO mcp_tool_policy (tool_name, role, effect) VALUES ('admin_tool', 'admin', 'allow')")
+	_, _ = db.Exec("INSERT INTO mcp_tool_policy (tool_name, role, effect) VALUES ('admin_tool', 'admin', 'allow')")
 
 	policy := NewDBPolicy(db)
 
@@ -358,8 +351,8 @@ func TestDBPolicy_AllowRule_MatchesRole(t *testing.T) {
 
 func TestDBPolicy_DenyOverridesAllow(t *testing.T) {
 	db, _ := setupTestRegistry(t)
-	db.Exec("INSERT INTO mcp_tool_policy (tool_name, role, effect) VALUES ('tool', '*', 'allow')")
-	db.Exec("INSERT INTO mcp_tool_policy (tool_name, role, effect) VALUES ('tool', 'banned', 'deny')")
+	_, _ = db.Exec("INSERT INTO mcp_tool_policy (tool_name, role, effect) VALUES ('tool', '*', 'allow')")
+	_, _ = db.Exec("INSERT INTO mcp_tool_policy (tool_name, role, effect) VALUES ('tool', 'banned', 'deny')")
 
 	policy := NewDBPolicy(db)
 
@@ -378,7 +371,7 @@ func TestDBPolicy_DenyOverridesAllow(t *testing.T) {
 
 func TestDBPolicy_WildcardAllow(t *testing.T) {
 	db, _ := setupTestRegistry(t)
-	db.Exec("INSERT INTO mcp_tool_policy (tool_name, role, effect) VALUES ('open_tool', '*', 'allow')")
+	_, _ = db.Exec("INSERT INTO mcp_tool_policy (tool_name, role, effect) VALUES ('open_tool', '*', 'allow')")
 
 	policy := NewDBPolicy(db)
 
@@ -393,11 +386,10 @@ func TestDBPolicy_WildcardAllow(t *testing.T) {
 
 func TestBridgeAuditHook(t *testing.T) {
 	db, reg := setupTestRegistry(t)
-	db.Exec("CREATE TABLE t (n INTEGER)")
-	db.Exec("INSERT INTO t VALUES (42)")
+	_, _ = db.Exec("CREATE TABLE t (n INTEGER)")
+	_, _ = db.Exec("INSERT INTO t VALUES (42)")
 
-	insertTool(t, db, "read_t", "test", "read t", `{"type":"object"}`,
-		"sql_query", `{"query":"SELECT n FROM t","result_format":"object"}`, "readonly")
+	insertTool(t, db, "read_t", "test", "read t", "sql_query", `{"query":"SELECT n FROM t","result_format":"object"}`, "readonly")
 
 	if err := reg.LoadTools(context.Background()); err != nil {
 		t.Fatal(err)
@@ -408,7 +400,7 @@ func TestBridgeAuditHook(t *testing.T) {
 	var auditToolVersion int
 	var auditDuration time.Duration
 
-	auditFn := func(ctx context.Context, toolName string, toolVersion int, params map[string]any, result string, err error, dur time.Duration) {
+	auditFn := func(_ context.Context, toolName string, toolVersion int, _ map[string]any, _ string, _ error, dur time.Duration) {
 		auditCalled = true
 		auditToolName = toolName
 		auditToolVersion = toolVersion
@@ -448,8 +440,7 @@ func TestMigrateIdempotent(t *testing.T) {
 	}
 
 	// Verify mode column exists by inserting a tool.
-	insertTool(t, db, "test_tool", "cat", "desc", `{"type":"object"}`,
-		"sql_query", `{"query":"SELECT 1"}`, "readonly")
+	insertTool(t, db, "test_tool", "cat", "desc", "sql_query", `{"query":"SELECT 1"}`, "readonly")
 }
 
 // --- Context propagation ---

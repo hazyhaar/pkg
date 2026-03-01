@@ -54,7 +54,7 @@ func TestConn_Batch(t *testing.T) {
 		Count     int         `json:"count"`
 		Dimension int         `json:"dimension"`
 	}
-	json.Unmarshal(resp, &result)
+	_ = json.Unmarshal(resp, &result)
 	if result.Count != 2 {
 		t.Errorf("Count = %d, want 2", result.Count)
 	}

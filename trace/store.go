@@ -111,7 +111,7 @@ func (s *Store) flushBatch(batch []*Entry) {
 	stmt, err := tx.Prepare(`INSERT INTO sql_traces (trace_id, op, query, duration_us, error, timestamp)
 		VALUES (?, ?, ?, ?, ?, ?)`)
 	if err != nil {
-		tx.Rollback()
+		_ = tx.Rollback()
 		slog.Error("trace store: prepare", "error", err)
 		return
 	}

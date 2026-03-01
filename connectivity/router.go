@@ -24,7 +24,6 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
-	"time"
 )
 
 // Handler is a transport-agnostic service function: bytes in, bytes out.
@@ -265,15 +264,4 @@ func countLocal(routes map[string]route) int {
 		}
 	}
 	return n
-}
-
-// callTimeout extracts timeout from route config, with a default.
-func callTimeout(cfg json.RawMessage, defaultTimeout time.Duration) time.Duration {
-	var parsed struct {
-		TimeoutMs int64 `json:"timeout_ms"`
-	}
-	if json.Unmarshal(cfg, &parsed) == nil && parsed.TimeoutMs > 0 {
-		return time.Duration(parsed.TimeoutMs) * time.Millisecond
-	}
-	return defaultTimeout
 }

@@ -60,15 +60,15 @@ func (h *Handler) ServeConn(ctx context.Context, conn *quic.Conn) {
 	stream, err := conn.AcceptStream(ctx)
 	if err != nil {
 		h.logger.Error("MCP accept stream failed", "remote", remote, "error", err)
-		conn.CloseWithError(ConnErrorProtocolViolation, "stream accept failed")
+		_ = conn.CloseWithError(ConnErrorProtocolViolation, "stream accept failed")
 		return
 	}
 
-	if err := ValidateMagicBytes(stream); err != nil {
+	if err = ValidateMagicBytes(stream); err != nil {
 		h.logger.Error("MCP magic bytes invalid", "remote", remote, "error", err)
 		stream.CancelWrite(StreamErrorProtocolConfusion)
 		stream.CancelRead(StreamErrorProtocolConfusion)
-		conn.CloseWithError(ConnErrorProtocolViolation, "invalid magic bytes")
+		_ = conn.CloseWithError(ConnErrorProtocolViolation, "invalid magic bytes")
 		return
 	}
 
@@ -141,7 +141,7 @@ func (l *Listener) Serve(ctx context.Context) error {
 
 		alpn := conn.ConnectionState().TLS.NegotiatedProtocol
 		if alpn != ALPNProtocolMCP {
-			conn.CloseWithError(ConnErrorUnsupportedALPN, "unsupported ALPN: "+alpn)
+			_ = conn.CloseWithError(ConnErrorUnsupportedALPN, "unsupported ALPN: "+alpn)
 			continue
 		}
 

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/hazyhaar/pkg/connectivity"
+	"github.com/hazyhaar/pkg/docpipe"
 	"github.com/hazyhaar/pkg/idgen"
 	"github.com/hazyhaar/pkg/kit"
 	"github.com/hazyhaar/pkg/observability"
@@ -32,7 +33,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := os.MkdirAll(cfg.ChunksDir, 0755); err != nil {
+	if err = os.MkdirAll(cfg.ChunksDir, 0755); err != nil {
 		slog.Error("create chunks dir", "error", err)
 		os.Exit(1)
 	}
@@ -45,7 +46,7 @@ func main() {
 		os.Exit(1)
 	}
 	traceStore := trace.NewStore(traceDB)
-	if err := traceStore.Init(); err != nil {
+	if err = traceStore.Init(); err != nil {
 		slog.Error("trace init", "error", err)
 		os.Exit(1)
 	}
@@ -57,11 +58,13 @@ func main() {
 	obsDBPath := filepath.Join(filepath.Dir(cfg.DBPath), "observability.db")
 	obsDB, err := sql.Open("sqlite", obsDBPath+"?_txlock=immediate&_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=synchronous(NORMAL)")
 	if err != nil {
+		traceStore.Close()
+		traceDB.Close()
 		slog.Error("observability db", "error", err)
 		os.Exit(1)
 	}
 	defer obsDB.Close()
-	if err := observability.Init(obsDB); err != nil {
+	if err = observability.Init(obsDB); err != nil {
 		slog.Error("observability schema", "error", err)
 		os.Exit(1)
 	}
@@ -84,12 +87,24 @@ func main() {
 	dossierIDGen := idgen.Prefixed("dos_", idgen.Default)
 	requestIDGen := idgen.Prefixed("req_", idgen.Default)
 
+	// --- Document extraction pipeline (docpipe) ---
+	pipe := docpipe.New(docpipe.Config{})
+	markdownConverter := func(ctx context.Context, filePath, mime string) (string, error) {
+		doc, extractErr := pipe.Extract(ctx, filePath)
+		if extractErr != nil {
+			return "", extractErr
+		}
+		return doc.RawText, nil
+	}
+
 	// --- Ingester ---
 	ing, err := sas_ingester.NewIngester(cfg,
 		sas_ingester.WithIDGenerator(dossierIDGen),
 		sas_ingester.WithAudit(auditLogger),
 		sas_ingester.WithMetrics(metrics),
 		sas_ingester.WithEvents(events),
+		sas_ingester.WithMarkdownConverter(markdownConverter),
+		sas_ingester.WithBufferWriter(sas_ingester.NewBufferWriter(cfg.BufferDir)),
 	)
 	if err != nil {
 		slog.Error("init ingester", "error", err)
@@ -121,7 +136,7 @@ func main() {
 	mux.HandleFunc("/v1/health", healthHandler(ing, obsDB))
 
 	slog.Info("sas_ingester listening", "addr", cfg.Listen)
-	if err := http.ListenAndServe(cfg.Listen, mux); err != nil {
+	if err = http.ListenAndServe(cfg.Listen, mux); err != nil {
 		slog.Error("serve", "error", err)
 		os.Exit(1)
 	}
@@ -168,7 +183,7 @@ func uploadHandler(ing *sas_ingester.Ingester) http.HandlerFunc {
 		}
 
 		// Parse multipart: expect a "file" field.
-		if err := r.ParseMultipartForm(ing.Config.MaxFileBytes()); err != nil {
+		if err = r.ParseMultipartForm(ing.Config.MaxFileBytes()); err != nil {
 			http.Error(w, fmt.Sprintf("parse form: %v", err), http.StatusBadRequest)
 			return
 		}
@@ -194,7 +209,7 @@ func uploadHandler(ing *sas_ingester.Ingester) http.HandlerFunc {
 		} else {
 			w.WriteHeader(http.StatusCreated)
 		}
-		json.NewEncoder(w).Encode(result)
+		_ = json.NewEncoder(w).Encode(result)
 	}
 }
 
@@ -230,7 +245,7 @@ func dossierHandler(ing *sas_ingester.Ingester) http.HandlerFunc {
 			}
 			pieces, _ := ing.Store.ListPieces(id)
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"dossier": dossier,
 				"pieces":  pieces,
 			})
@@ -293,7 +308,7 @@ func healthHandler(ing *sas_ingester.Ingester, obsDB *sql.DB) http.HandlerFunc {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}
 }
 
@@ -436,7 +451,7 @@ func tusPatchHandler(tus *sas_ingester.TusHandler, ing *sas_ingester.Ingester) h
 
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusOK)
-				json.NewEncoder(w).Encode(result)
+				_ = json.NewEncoder(w).Encode(result)
 				return
 			}
 

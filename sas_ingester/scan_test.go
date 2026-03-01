@@ -36,7 +36,7 @@ func TestCheckPolyglot(t *testing.T) {
 
 	// PDF + ELF header: polyglot.
 	polyglot := append([]byte("\x7fELF"), make([]byte, 100)...)
-	copy(polyglot[10:], []byte("%PDF"))
+	copy(polyglot[10:], "%PDF")
 	if w := checkPolyglot(polyglot); w == "" {
 		t.Error("expected polyglot warning")
 	}
@@ -60,8 +60,8 @@ func TestScanFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer os.Remove(f.Name())
-	f.WriteString("just a plain text file")
-	f.Close()
+	_, _ = f.WriteString("just a plain text file")
+	_ = f.Close()
 
 	cfg := DefaultConfig()
 	result, err := ScanFile(f.Name(), cfg)

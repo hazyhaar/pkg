@@ -23,7 +23,7 @@ func ExampleNewPublisher_static() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	go pub.Start(ctx)
+	go func() { _ = pub.Start(ctx) }()
 	// Publisher now watches db and pushes snapshots to fo-1.
 
 	_ = pub // use pub
@@ -44,7 +44,7 @@ func ExampleNewPublisherWithRoutesDB() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	go pub.Start(ctx)
+	go func() { _ = pub.Start(ctx) }()
 
 	_ = pub // use pub
 }
@@ -61,7 +61,7 @@ func ExampleNewSubscriber() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	go sub.Start(ctx)
+	go func() { _ = sub.Start(ctx) }()
 
 	_ = sub // use sub
 }

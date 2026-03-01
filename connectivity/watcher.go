@@ -26,7 +26,7 @@ func (r *Router) Watch(ctx context.Context, db *sql.DB, interval time.Duration) 
 	if err := r.Reload(ctx, db); err != nil {
 		r.logger.Error("connectivity: initial reload failed", "error", err)
 	}
-	db.QueryRow("PRAGMA data_version").Scan(&lastVersion)
+	_ = db.QueryRow("PRAGMA data_version").Scan(&lastVersion)
 
 	r.logger.Info("connectivity watcher started", "interval", interval)
 

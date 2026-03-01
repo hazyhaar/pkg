@@ -158,6 +158,7 @@ func (b *Breaker) Allow() bool {
 func (b *Breaker) RecordSuccess() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.maybeTransition()
 	switch b.state {
 	case HalfOpen:
 		b.successes++
@@ -176,6 +177,7 @@ func (b *Breaker) RecordSuccess() {
 func (b *Breaker) RecordFailure() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.maybeTransition()
 	b.lastFailure = b.now()
 	switch b.state {
 	case Closed:

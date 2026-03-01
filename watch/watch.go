@@ -214,7 +214,7 @@ func (w *Watcher) WaitForVersion(ctx context.Context, target int64) error {
 	return nil
 }
 
-func (w *Watcher) fire(ctx context.Context, log *slog.Logger, action func() error, ver int64) {
+func (w *Watcher) fire(_ context.Context, log *slog.Logger, action func() error, ver int64) {
 	log.Info("watch: reloading", "old_version", w.version.Load(), "new_version", ver)
 	start := time.Now()
 	if err := action(); err != nil {

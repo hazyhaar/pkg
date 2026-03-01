@@ -91,7 +91,7 @@ func TestReload_LocalStrategy(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := r.Reload(context.Background(), db); err != nil {
+	if err = r.Reload(context.Background(), db); err != nil {
 		t.Fatalf("reload: %v", err)
 	}
 
@@ -122,7 +122,7 @@ func TestReload_NoopStrategy(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := r.Reload(context.Background(), db); err != nil {
+	if err = r.Reload(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
 
@@ -153,7 +153,7 @@ func TestReload_RemoteStrategy(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := r.Reload(context.Background(), db); err != nil {
+	if err = r.Reload(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
 
@@ -189,7 +189,7 @@ func TestReload_RemoteOverridesLocal(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := r.Reload(context.Background(), db); err != nil {
+	if err = r.Reload(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
 
@@ -256,7 +256,7 @@ func TestReload_ChangedRouteRebuildsHandler(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := r.Reload(context.Background(), db); err != nil {
+	if err = r.Reload(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
 
@@ -265,7 +265,7 @@ func TestReload_ChangedRouteRebuildsHandler(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := r.Reload(context.Background(), db); err != nil {
+	if err = r.Reload(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
 
@@ -301,7 +301,7 @@ func TestReload_RemovedRouteClosesHandler(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := r.Reload(context.Background(), db); err != nil {
+	if err = r.Reload(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
 
@@ -330,7 +330,7 @@ func TestReload_NoFactoryWarns(t *testing.T) {
 	}
 
 	// Should not error — just skip.
-	if err := r.Reload(context.Background(), db); err != nil {
+	if err = r.Reload(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
 
@@ -566,7 +566,7 @@ func TestChain(t *testing.T) {
 	}
 
 	wrapped := Chain(mw1, mw2)(base)
-	wrapped(context.Background(), nil)
+	_, _ = wrapped(context.Background(), nil)
 
 	expected := []string{"mw1-before", "mw2-before", "handler", "mw2-after", "mw1-after"}
 	if len(order) != len(expected) {
@@ -651,7 +651,7 @@ func TestWatch_DetectsChanges(t *testing.T) {
 	}
 	t.Cleanup(func() { writerDB.Close() })
 
-	if err := Init(writerDB); err != nil {
+	if err = Init(writerDB); err != nil {
 		t.Fatal(err)
 	}
 

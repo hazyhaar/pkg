@@ -132,7 +132,7 @@ func TestVerify_CorruptChunk(t *testing.T) {
 
 	// Corrupt first chunk
 	chunkPath := filepath.Join(chunksDir, "chunk_00000.bin")
-	os.WriteFile(chunkPath, []byte("corrupted"), 0644)
+	_ = os.WriteFile(chunkPath, []byte("corrupted"), 0644)
 
 	result, err := Verify(chunksDir)
 	if err != nil {
@@ -152,7 +152,7 @@ func TestVerify_MissingChunk(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	os.Remove(filepath.Join(chunksDir, "chunk_00001.bin"))
+	_ = os.Remove(filepath.Join(chunksDir, "chunk_00001.bin"))
 
 	result, err := Verify(chunksDir)
 	if err != nil {
@@ -174,7 +174,7 @@ func TestAssemble_HashMismatch(t *testing.T) {
 
 	// Corrupt a chunk
 	chunkPath := filepath.Join(chunksDir, "chunk_00000.bin")
-	os.WriteFile(chunkPath, []byte("bad data here!!"), 0644)
+	_ = os.WriteFile(chunkPath, []byte("bad data here!!"), 0644)
 
 	outPath := filepath.Join(tmpDir, "out.bin")
 	err := Assemble(chunksDir, outPath, nil)
@@ -246,7 +246,8 @@ func TestSplitReader_Basic(t *testing.T) {
 	// Verify chunk files exist and manifest.json was written.
 	for _, cm := range manifest.Chunks {
 		path := filepath.Join(dir, cm.FileName)
-		info, err := os.Stat(path)
+		var info os.FileInfo
+		info, err = os.Stat(path)
 		if err != nil {
 			t.Errorf("chunk file %s missing: %v", cm.FileName, err)
 			continue
@@ -299,7 +300,7 @@ func TestSplitReader_AssembleRoundtrip(t *testing.T) {
 	}
 
 	outPath := filepath.Join(outDir, "reassembled.bin")
-	if err := Assemble(chunksDir, outPath, nil); err != nil {
+	if err = Assemble(chunksDir, outPath, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -359,7 +360,7 @@ func TestSplit_MatchesSplitReader(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer os.Remove(tmpFile.Name())
-	tmpFile.Write(data)
+	_, _ = tmpFile.Write(data)
 	tmpFile.Close()
 
 	dir1 := t.TempDir()

@@ -60,7 +60,14 @@ func (h *BOHealthChecker) check() {
 	h.lastCheck.Store(time.Now().Unix())
 
 	start := time.Now()
-	resp, err := h.client.Get(h.boURL + "/health")
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, h.boURL+"/health", nil)
+	if err != nil {
+		h.healthy.Store(false)
+		h.failCount.Add(1)
+		slog.Debug("bo health check request creation failed", "error", err, "bo_url", h.boURL)
+		return
+	}
+	resp, err := h.client.Do(req)
 	latency := time.Since(start)
 
 	if err != nil {

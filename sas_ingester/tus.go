@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -136,7 +137,7 @@ func (h *TusHandler) Complete(uploadID string) (*UploadResult, error) {
 
 	// Ensure dossier exists in sas_ingester DB (FK for pieces).
 	// Same idempotent logic as Ingest() pre-cutoff.
-	if err := h.store.EnsureDossier(u.DossierID, u.OwnerJWTSub); err != nil {
+	if err = h.store.EnsureDossier(u.DossierID, u.OwnerJWTSub); err != nil {
 		return nil, fmt.Errorf("ensure dossier: %w", err)
 	}
 
@@ -163,7 +164,9 @@ func (h *TusHandler) Complete(uploadID string) (*UploadResult, error) {
 	if existing != nil {
 		// Clean up tus state.
 		os.RemoveAll(u.ChunkDir)
-		h.store.CompleteTusUpload(uploadID)
+		if err := h.store.CompleteTusUpload(uploadID); err != nil {
+			slog.Error("tus: complete upload after dedup", "upload_id", uploadID, "error", err)
+		}
 		return &UploadResult{
 			SHA256:       hash,
 			SizeBytes:    size,
@@ -207,7 +210,9 @@ func (h *TusHandler) Complete(uploadID string) (*UploadResult, error) {
 
 	// Clean up: remove the tus staging directory (chunks are in finalDir).
 	os.RemoveAll(u.ChunkDir)
-	h.store.CompleteTusUpload(uploadID)
+	if err := h.store.CompleteTusUpload(uploadID); err != nil {
+		slog.Error("tus: complete upload", "upload_id", uploadID, "error", err)
+	}
 
 	return &UploadResult{
 		SHA256:     hash,

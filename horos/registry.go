@@ -98,7 +98,7 @@ func (r *Registry) InitDB(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("horos: begin tx: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	for _, info := range snapshot {
 		_, err := tx.Exec(
@@ -122,7 +122,7 @@ func (r *Registry) SyncToDB(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("horos: begin tx: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	for _, info := range snapshot {
 		_, err := tx.Exec(

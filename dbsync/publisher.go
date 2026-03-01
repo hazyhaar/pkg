@@ -165,7 +165,7 @@ func (p *Publisher) Status() map[string]any {
 	if p.lastMeta != nil {
 		b, _ := json.Marshal(p.lastMeta)
 		var m map[string]any
-		json.Unmarshal(b, &m)
+		_ = json.Unmarshal(b, &m) // best-effort for status display
 		status["last_snapshot"] = m
 	}
 	return status

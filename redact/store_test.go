@@ -157,7 +157,7 @@ func TestStore_InvalidPatternRejected(t *testing.T) {
 func TestStore_InvalidPatternInDB_Skipped(t *testing.T) {
 	db, s := setupTestStore(t)
 	// Insert invalid regex directly into DB (bypassing validation).
-	db.Exec(`INSERT INTO redact_patterns (name, pattern, replace_with) VALUES ('bad', '[invalid', '[x]')`)
+	_, _ = db.Exec(`INSERT INTO redact_patterns (name, pattern, replace_with) VALUES ('bad', '[invalid', '[x]')`)
 
 	// Reload should succeed, skipping the bad pattern.
 	if err := s.Reload(); err != nil {
@@ -173,7 +173,7 @@ func TestStore_InvalidPatternInDB_Skipped(t *testing.T) {
 
 func TestStore_InvalidWhitelistInDB_Skipped(t *testing.T) {
 	db, s := setupTestStore(t)
-	db.Exec(`INSERT INTO redact_whitelist (name, pattern) VALUES ('bad', '[invalid')`)
+	_, _ = db.Exec(`INSERT INTO redact_whitelist (name, pattern) VALUES ('bad', '[invalid')`)
 
 	if err := s.Reload(); err != nil {
 		t.Fatalf("Reload should skip bad whitelist patterns: %v", err)
@@ -202,9 +202,9 @@ func TestStore_StaticAndDynamicRulesCombined(t *testing.T) {
 
 func TestStore_ListPatterns(t *testing.T) {
 	_, s := setupTestStore(t)
-	s.AddPattern("a", `aaa`, "[a]")
-	s.AddPattern("b", `bbb`, "[b]")
-	s.RemovePattern("b")
+	_ = s.AddPattern("a", `aaa`, "[a]")
+	_ = s.AddPattern("b", `bbb`, "[b]")
+	_ = s.RemovePattern("b")
 
 	entries, err := s.ListPatterns()
 	if err != nil {
@@ -227,9 +227,9 @@ func TestStore_ListPatterns(t *testing.T) {
 
 func TestStore_ListWhitelist(t *testing.T) {
 	_, s := setupTestStore(t)
-	s.AddWhitelist("x", `xxx`)
-	s.AddWhitelist("y", `yyy`)
-	s.RemoveWhitelist("y")
+	_ = s.AddWhitelist("x", `xxx`)
+	_ = s.AddWhitelist("y", `yyy`)
+	_ = s.RemoveWhitelist("y")
 
 	entries, err := s.ListWhitelist()
 	if err != nil {
@@ -313,9 +313,9 @@ func TestStore_WhitelistAndBlacklistInteraction(t *testing.T) {
 func TestStore_ReactivatePattern(t *testing.T) {
 	_, s := setupTestStore(t)
 
-	s.AddPattern("test", `secret_value`, "[redacted]")
-	s.RemovePattern("test")
-	s.Reload()
+	_ = s.AddPattern("test", `secret_value`, "[redacted]")
+	_ = s.RemovePattern("test")
+	_ = s.Reload()
 
 	// Not redacted after removal.
 	got := s.Sanitize("found secret_value here")
@@ -324,8 +324,8 @@ func TestStore_ReactivatePattern(t *testing.T) {
 	}
 
 	// Re-add (upsert reactivates).
-	s.AddPattern("test", `secret_value`, "[redacted]")
-	s.Reload()
+	_ = s.AddPattern("test", `secret_value`, "[redacted]")
+	_ = s.Reload()
 
 	got = s.Sanitize("found secret_value here")
 	if !strings.Contains(got, "[redacted]") {

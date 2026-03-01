@@ -64,7 +64,7 @@ func (h *SQLQueryHandler) Execute(ctx context.Context, tool *DynamicTool, params
 		for i := range values {
 			ptrs[i] = &values[i]
 		}
-		if err := rows.Scan(ptrs...); err != nil {
+		if err = rows.Scan(ptrs...); err != nil {
 			return "", err
 		}
 		row := make(map[string]any, len(columns))
@@ -117,7 +117,7 @@ func (h *SQLScriptHandler) Execute(ctx context.Context, tool *DynamicTool, param
 		if err != nil {
 			return "", fmt.Errorf("begin tx: %w", err)
 		}
-		defer tx.Rollback()
+		defer func() { _ = tx.Rollback() }()
 	}
 
 	var lastInsertID, totalAffected int64
@@ -152,7 +152,7 @@ func (h *SQLScriptHandler) Execute(ctx context.Context, tool *DynamicTool, param
 	}
 
 	if useTx {
-		if err := tx.Commit(); err != nil {
+		if err = tx.Commit(); err != nil {
 			return "", fmt.Errorf("commit: %w", err)
 		}
 	}

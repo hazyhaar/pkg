@@ -111,7 +111,7 @@ func TestSubmitTruncation(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 
 	var comments []Comment
-	json.NewDecoder(rec.Body).Decode(&comments)
+	_ = json.NewDecoder(rec.Body).Decode(&comments)
 	if len(comments) != 1 {
 		t.Fatalf("expected 1 comment, got %d", len(comments))
 	}

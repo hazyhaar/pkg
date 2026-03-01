@@ -300,7 +300,7 @@ func (a *AuditLogger) flushLoop() {
 			 status, metadata)
 			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
 		if err != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 			slog.Error("observability audit: prepare", "error", err)
 			return
 		}

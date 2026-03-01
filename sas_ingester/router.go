@@ -2,6 +2,7 @@ package sas_ingester
 
 import (
 	"bytes"
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -149,7 +150,7 @@ func (rt *Router) Deliver(route *RoutePending, piece *Piece) bool {
 		return false
 	}
 
-	req, err := http.NewRequest("POST", route.Target, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(context.Background(), "POST", route.Target, bytes.NewReader(body))
 	if err != nil {
 		slog.Error("create request", "component", "router", "error", err)
 		return false

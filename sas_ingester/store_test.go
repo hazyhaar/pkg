@@ -58,7 +58,7 @@ func TestDossierCRUD(t *testing.T) {
 	}
 
 	// Delete
-	if err := s.DeleteDossier("d-001"); err != nil {
+	if err = s.DeleteDossier("d-001"); err != nil {
 		t.Fatal(err)
 	}
 	got, err = s.GetDossier("d-001")
@@ -98,7 +98,7 @@ func TestPieceCRUD(t *testing.T) {
 	s := tempStore(t)
 
 	now := time.Now().UTC().Format(time.RFC3339)
-	s.CreateDossier(&Dossier{ID: "d-100", OwnerJWTSub: "u", CreatedAt: now})
+	_ = s.CreateDossier(&Dossier{ID: "d-100", OwnerJWTSub: "u", CreatedAt: now})
 
 	p := &Piece{
 		SHA256:        "abc123",
@@ -126,7 +126,7 @@ func TestPieceCRUD(t *testing.T) {
 	}
 
 	// Update state.
-	s.UpdatePieceState("abc123", "d-100", "ready")
+	_ = s.UpdatePieceState("abc123", "d-100", "ready")
 	got, _ = s.GetPiece("abc123", "d-100")
 	if got.State != "ready" {
 		t.Errorf("state = %q, want ready", got.State)
@@ -152,8 +152,8 @@ func TestChunks(t *testing.T) {
 	s := tempStore(t)
 
 	now := time.Now().UTC().Format(time.RFC3339)
-	s.CreateDossier(&Dossier{ID: "d-200", OwnerJWTSub: "u", CreatedAt: now})
-	s.InsertPiece(&Piece{SHA256: "sha1", DossierID: "d-200", State: "received", CreatedAt: now, UpdatedAt: now})
+	_ = s.CreateDossier(&Dossier{ID: "d-200", OwnerJWTSub: "u", CreatedAt: now})
+	_ = s.InsertPiece(&Piece{SHA256: "sha1", DossierID: "d-200", State: "received", CreatedAt: now, UpdatedAt: now})
 
 	if err := s.InsertChunk("sha1", "d-200", 0, "cshaA", true); err != nil {
 		t.Fatal(err)
@@ -172,7 +172,7 @@ func TestDossierRoutes(t *testing.T) {
 	s := tempStore(t)
 
 	now := time.Now().UTC().Format(time.RFC3339)
-	s.CreateDossier(&Dossier{ID: "d-routes", OwnerJWTSub: "u", CreatedAt: now})
+	_ = s.CreateDossier(&Dossier{ID: "d-routes", OwnerJWTSub: "u", CreatedAt: now})
 
 	// Set per-dossier routes.
 	routes := []DossierRoute{
@@ -216,8 +216,8 @@ func TestRoutes(t *testing.T) {
 	s := tempStore(t)
 
 	now := time.Now().UTC().Format(time.RFC3339)
-	s.CreateDossier(&Dossier{ID: "d-300", OwnerJWTSub: "u", CreatedAt: now})
-	s.InsertPiece(&Piece{SHA256: "sha2", DossierID: "d-300", State: "ready", CreatedAt: now, UpdatedAt: now})
+	_ = s.CreateDossier(&Dossier{ID: "d-300", OwnerJWTSub: "u", CreatedAt: now})
+	_ = s.InsertPiece(&Piece{SHA256: "sha2", DossierID: "d-300", State: "ready", CreatedAt: now, UpdatedAt: now})
 
 	r := &RoutePending{
 		PieceSHA256: "sha2",
@@ -244,7 +244,7 @@ func TestRoutes(t *testing.T) {
 	}
 
 	// Delete route.
-	s.DeleteRoute("sha2", "d-300", "https://example.com/hook")
+	_ = s.DeleteRoute("sha2", "d-300", "https://example.com/hook")
 	routes, _ = s.ListRoutes("sha2", "d-300")
 	if len(routes) != 0 {
 		t.Errorf("routes after delete = %d, want 0", len(routes))

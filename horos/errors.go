@@ -74,7 +74,7 @@ func DetectError(payload []byte) (*ServiceError, bool) {
 
 	var env serviceErrorEnvelope
 	if err := json.Unmarshal(payload, &env); err != nil {
-		return nil, false
+		return nil, false //nolint:nilerr // intentional: unmarshal failure means payload is not a ServiceError
 	}
 	if env.Error.Code == "" {
 		return nil, false

@@ -77,7 +77,7 @@ func ReceiveFile(r io.Reader, dossierID string, cfg *Config, store *Store) (*Upl
 	}
 	if err := os.Rename(chunkDir, finalDir); err != nil {
 		// Rename can fail across filesystems; fall back to keeping incoming dir.
-		finalDir = chunkDir
+		_ = err // non-critical: chunks remain in the incoming directory
 	}
 
 	// Stage 4: record the piece first (FK: chunks reference pieces).

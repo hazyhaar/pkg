@@ -46,7 +46,7 @@ func runOnce(ctx context.Context, db *sql.DB, fn func(*sql.Tx) error) error {
 		return fmt.Errorf("dbopen: begin tx: %w", err)
 	}
 	if err := fn(tx); err != nil {
-		tx.Rollback()
+		_ = tx.Rollback()
 		return err
 	}
 	if err := tx.Commit(); err != nil {

@@ -52,7 +52,7 @@ func (w *Widget) handleSubmit(wr http.ResponseWriter, r *http.Request) {
 	}
 
 	wr.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(wr).Encode(map[string]string{"id": id, "status": "ok"})
+	_ = json.NewEncoder(wr).Encode(map[string]string{"id": id, "status": "ok"})
 }
 
 func (w *Widget) handleListJSON(wr http.ResponseWriter, r *http.Request) {
@@ -76,7 +76,7 @@ func (w *Widget) handleListJSON(wr http.ResponseWriter, r *http.Request) {
 	}
 
 	wr.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(wr).Encode(comments)
+	_ = json.NewEncoder(wr).Encode(comments)
 }
 
 // commentView is the template-friendly projection of a Comment.
@@ -133,7 +133,7 @@ func (w *Widget) handleListHTML(wr http.ResponseWriter, r *http.Request) {
 	}
 
 	wr.Header().Set("Content-Type", "text/html; charset=utf-8")
-	listHTMLTmpl.Execute(wr, struct {
+	_ = listHTMLTmpl.Execute(wr, struct {
 		AppName  string
 		Count    int
 		Comments []commentView
@@ -182,5 +182,5 @@ func isSafeURL(u string) bool {
 func jsonErr(w http.ResponseWriter, msg string, code int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(map[string]string{"error": msg})
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }

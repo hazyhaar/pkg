@@ -2,7 +2,6 @@ package mcprt
 
 import (
 	"context"
-	"database/sql"
 	"testing"
 
 	_ "modernc.org/sqlite"
@@ -20,8 +19,7 @@ func TestTimeoutMs_LoadedFromDB(t *testing.T) {
 	}
 
 	// Insert tool with default timeout.
-	insertTool(t, db, "default_tool", "test", "default tool", `{"type":"object"}`,
-		"sql_query", `{"query":"SELECT 1"}`, "readonly")
+	insertTool(t, db, "default_tool", "test", "default tool", "sql_query", `{"query":"SELECT 1"}`, "readonly")
 
 	if err := reg.LoadTools(context.Background()); err != nil {
 		t.Fatal(err)
@@ -56,8 +54,7 @@ func TestGroupTag_LoadedFromDB(t *testing.T) {
 	}
 
 	// Insert tool with default group tag.
-	insertTool(t, db, "normal_tool", "test", "normal tool", `{"type":"object"}`,
-		"sql_query", `{"query":"SELECT 1"}`, "readonly")
+	insertTool(t, db, "normal_tool", "test", "normal tool", "sql_query", `{"query":"SELECT 1"}`, "readonly")
 
 	if err := reg.LoadTools(context.Background()); err != nil {
 		t.Fatal(err)
@@ -133,7 +130,3 @@ func TestMigrate_Idempotent_WithNewColumns(t *testing.T) {
 	}
 }
 
-func setupTestDBForTimeout(t *testing.T) *sql.DB {
-	t.Helper()
-	return setupTestDB(t)
-}

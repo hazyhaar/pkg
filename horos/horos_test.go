@@ -1,6 +1,7 @@
 package horos
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -57,7 +58,7 @@ func TestWrapUnwrap(t *testing.T) {
 	if fmtID != FormatJSON {
 		t.Fatalf("format ID: want %d, got %d", FormatJSON, fmtID)
 	}
-	if string(out) != string(payload) {
+	if !bytes.Equal(out, payload) {
 		t.Fatalf("payload: want %s, got %s", payload, out)
 	}
 }
@@ -79,7 +80,7 @@ func TestWrapRawFormat(t *testing.T) {
 	if fmtID != FormatRaw {
 		t.Fatalf("format ID: want %d, got %d", FormatRaw, fmtID)
 	}
-	if string(out) != string(payload) {
+	if !bytes.Equal(out, payload) {
 		t.Fatalf("payload: want %s, got %s", payload, out)
 	}
 }
@@ -100,7 +101,7 @@ func TestWrapUnwrapMsgp(t *testing.T) {
 	if fmtID != FormatMsgp {
 		t.Fatalf("format ID: want %d, got %d", FormatMsgp, fmtID)
 	}
-	if string(out) != string(payload) {
+	if !bytes.Equal(out, payload) {
 		t.Fatalf("payload mismatch")
 	}
 }
@@ -171,7 +172,7 @@ func TestUnwrapRawChecksumValid(t *testing.T) {
 	if fmtID != FormatRaw {
 		t.Fatalf("expected FormatRaw, got %d", fmtID)
 	}
-	if string(out) != string(payload) {
+	if !bytes.Equal(out, payload) {
 		t.Fatalf("payload: want %q, got %q", payload, out)
 	}
 }

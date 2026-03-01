@@ -22,9 +22,9 @@ func Example() {
 	}
 	defer db.Close()
 
-	if err := connectivity.Init(db); err != nil {
+	if err = connectivity.Init(db); err != nil {
 		slog.Error("init connectivity", "error", err)
-		os.Exit(1)
+		return
 	}
 
 	// 2. Create router and register a local handler.
@@ -39,30 +39,30 @@ func Example() {
 	router.RegisterTransport("http", connectivity.HTTPFactory())
 
 	// 4. Configure routes in SQLite: billing runs locally.
-	db.Exec(`INSERT INTO routes (service_name, strategy) VALUES ('billing', 'local')`)
+	_, _ = db.Exec(`INSERT INTO routes (service_name, strategy) VALUES ('billing', 'local')`)
 
 	// 5. Load routes.
-	if err := router.Reload(context.Background(), db); err != nil {
+	if err = router.Reload(context.Background(), db); err != nil {
 		slog.Error("reload routes", "error", err)
-		os.Exit(1)
+		return
 	}
 
 	// 6. Call the service — routed locally.
 	resp, err := router.Call(context.Background(), "billing", []byte("$100"))
 	if err != nil {
 		slog.Error("call billing", "error", err)
-		os.Exit(1)
+		return
 	}
 	fmt.Println(string(resp))
 
 	// 7. Switch to noop — disable the service with zero downtime.
-	db.Exec(`UPDATE routes SET strategy='noop' WHERE service_name='billing'`)
-	router.Reload(context.Background(), db)
+	_, _ = db.Exec(`UPDATE routes SET strategy='noop' WHERE service_name='billing'`)
+	_ = router.Reload(context.Background(), db)
 
 	resp, err = router.Call(context.Background(), "billing", []byte("$200"))
 	if err != nil {
 		slog.Error("call billing noop", "error", err)
-		os.Exit(1)
+		return
 	}
 	fmt.Println(resp == nil)
 
@@ -89,7 +89,7 @@ func Example_middleware() {
 	resp, err := wrapped(context.Background(), []byte("hello"))
 	if err != nil {
 		slog.Error("call wrapped handler", "error", err)
-		os.Exit(1)
+		return
 	}
 	fmt.Println(string(resp))
 	// Output:
@@ -109,8 +109,8 @@ func Example_circuitBreaker() {
 	wrapped := connectivity.WithCircuitBreaker(cb, "payments")(failingHandler)
 
 	// First two calls fail and trip the breaker.
-	wrapped(context.Background(), nil)
-	wrapped(context.Background(), nil)
+	_, _ = wrapped(context.Background(), nil)
+	_, _ = wrapped(context.Background(), nil)
 
 	// Third call is rejected by the circuit breaker.
 	_, err := wrapped(context.Background(), nil)

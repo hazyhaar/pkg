@@ -11,8 +11,8 @@ func TestExtractMetadata_Text(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer os.Remove(f.Name())
-	f.WriteString("Hello, this is a plain text file for testing metadata extraction.")
-	f.Close()
+	_, _ = f.WriteString("Hello, this is a plain text file for testing metadata extraction.")
+	_ = f.Close()
 
 	meta, err := ExtractMetadata(f.Name())
 	if err != nil {
@@ -37,9 +37,9 @@ func TestExtractMetadata_Binary(t *testing.T) {
 	defer os.Remove(f.Name())
 
 	// Write PNG header.
-	f.Write([]byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a})
-	f.Write(make([]byte, 100))
-	f.Close()
+	_, _ = f.Write([]byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a})
+	_, _ = f.Write(make([]byte, 100))
+	_ = f.Close()
 
 	meta, err := ExtractMetadata(f.Name())
 	if err != nil {
@@ -88,11 +88,11 @@ func TestExtractTrailer_PDF(t *testing.T) {
 	defer os.Remove(f.Name())
 
 	// Write a minimal PDF-like tail.
-	f.WriteString("some content\n")
-	f.WriteString("startxref\n")
-	f.WriteString("12345\n")
-	f.WriteString("%%EOF\n")
-	f.Close()
+	_, _ = f.WriteString("some content\n")
+	_, _ = f.WriteString("startxref\n")
+	_, _ = f.WriteString("12345\n")
+	_, _ = f.WriteString("%%EOF\n")
+	_ = f.Close()
 
 	trailer, err := extractTrailer(f.Name())
 	if err != nil {
@@ -123,9 +123,9 @@ func TestExtractTrailer_ZIP(t *testing.T) {
 	eocd[2] = 0x05
 	eocd[3] = 0x06
 	// Remaining fields are zero (no comment, zero entries).
-	f.Write([]byte("some zip data before EOCD\n"))
-	f.Write(eocd)
-	f.Close()
+	_, _ = f.WriteString("some zip data before EOCD\n")
+	_, _ = f.Write(eocd)
+	_ = f.Close()
 
 	trailer, err := extractTrailer(f.Name())
 	if err != nil {
@@ -143,8 +143,8 @@ func TestExtractFullMetadata(t *testing.T) {
 	dir := t.TempDir()
 
 	// Write two "chunks".
-	os.WriteFile(dir+"/chunk_00000.bin", []byte("Hello, this is a plain text file for multi-chunk entropy."), 0644)
-	os.WriteFile(dir+"/chunk_00001.bin", []byte("Second chunk with more text content and %%EOF marker."), 0644)
+	_ = os.WriteFile(dir+"/chunk_00000.bin", []byte("Hello, this is a plain text file for multi-chunk entropy."), 0644)
+	_ = os.WriteFile(dir+"/chunk_00001.bin", []byte("Second chunk with more text content and %%EOF marker."), 0644)
 
 	meta, err := ExtractFullMetadata(dir, 2)
 	if err != nil {

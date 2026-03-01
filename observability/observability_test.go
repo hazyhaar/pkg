@@ -16,8 +16,8 @@ func setupObsDB(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatal(err)
 	}
-	db.Exec("PRAGMA journal_mode=WAL")
-	db.Exec("PRAGMA foreign_keys=ON")
+	_, _ = db.Exec("PRAGMA journal_mode=WAL")
+	_, _ = db.Exec("PRAGMA foreign_keys=ON")
 	if err := Init(db); err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +34,7 @@ func TestInit_CreatesAllTables(t *testing.T) {
 	}
 	for _, table := range tables {
 		var count int
-		db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&count)
+		_ = db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&count)
 		if count != 1 {
 			t.Fatalf("table %s not found", table)
 		}
@@ -152,7 +152,7 @@ func TestHeartbeatWriter_WriteHeartbeat(t *testing.T) {
 
 	var workerName string
 	var goroutines int
-	db.QueryRow("SELECT worker_name, goroutines_count FROM worker_heartbeats LIMIT 1").
+	_ = db.QueryRow("SELECT worker_name, goroutines_count FROM worker_heartbeats LIMIT 1").
 		Scan(&workerName, &goroutines)
 	if workerName != "test_worker" {
 		t.Fatalf("worker_name: got %q", workerName)
@@ -175,7 +175,7 @@ func TestHeartbeatWriter_StartStop(t *testing.T) {
 	hw.Stop()
 
 	var count int
-	db.QueryRow("SELECT COUNT(*) FROM worker_heartbeats WHERE worker_name='loop_worker'").Scan(&count)
+	_ = db.QueryRow("SELECT COUNT(*) FROM worker_heartbeats WHERE worker_name='loop_worker'").Scan(&count)
 	if count < 2 {
 		t.Fatalf("heartbeat count: got %d, want >= 2", count)
 	}
@@ -186,7 +186,7 @@ func TestCleanupHeartbeats(t *testing.T) {
 
 	// Insert old heartbeat.
 	oldTs := time.Now().Add(-40 * 24 * time.Hour).Unix()
-	db.Exec(`INSERT INTO worker_heartbeats (worker_name, hostname, worker_pid, timestamp,
+	_, _ = db.Exec(`INSERT INTO worker_heartbeats (worker_name, hostname, worker_pid, timestamp,
 		goroutines_count, memory_alloc_mb, memory_sys_mb, gc_count)
 		VALUES ('old', 'host', 1, ?, 1, 1.0, 1.0, 1)`, oldTs)
 
@@ -222,7 +222,7 @@ func TestAuditLogger_LogSync(t *testing.T) {
 	}
 
 	var component string
-	db.QueryRow("SELECT component_name FROM audit_log WHERE entry_id=?", entry.EntryID).Scan(&component)
+	_ = db.QueryRow("SELECT component_name FROM audit_log WHERE entry_id=?", entry.EntryID).Scan(&component)
 	if component != "test" {
 		t.Fatalf("component: got %q", component)
 	}
@@ -239,7 +239,7 @@ func TestAuditLogger_LogAsync(t *testing.T) {
 	al.Close()
 
 	var count int
-	db.QueryRow("SELECT COUNT(*) FROM audit_log WHERE component_name='async_test'").Scan(&count)
+	_ = db.QueryRow("SELECT COUNT(*) FROM audit_log WHERE component_name='async_test'").Scan(&count)
 	if count != 1 {
 		t.Fatalf("async count: got %d", count)
 	}
@@ -283,8 +283,8 @@ func TestAuditLogger_Query(t *testing.T) {
 	db := setupObsDB(t)
 	al := NewAuditLogger(db, 100)
 
-	al.Log(context.Background(), &AuditEntry{ComponentName: "svc_a", OperationType: "create", Status: "success"})
-	al.Log(context.Background(), &AuditEntry{ComponentName: "svc_b", OperationType: "delete", Status: "error"})
+	_ = al.Log(context.Background(), &AuditEntry{ComponentName: "svc_a", OperationType: "create", Status: "success"})
+	_ = al.Log(context.Background(), &AuditEntry{ComponentName: "svc_b", OperationType: "delete", Status: "error"})
 
 	comp := "svc_a"
 	entries, err := al.Query(context.Background(), &AuditFilter{ComponentName: &comp, Limit: 10})
@@ -306,12 +306,12 @@ func TestAuditLogger_Cleanup(t *testing.T) {
 	al := NewAuditLogger(db, 100)
 
 	oldTs := time.Now().Add(-40 * 24 * time.Hour)
-	al.Log(context.Background(), &AuditEntry{
+	_ = al.Log(context.Background(), &AuditEntry{
 		ComponentName: "old",
 		OperationType: "test",
 		Timestamp:     oldTs,
 	})
-	al.Log(context.Background(), &AuditEntry{
+	_ = al.Log(context.Background(), &AuditEntry{
 		ComponentName: "new",
 		OperationType: "test",
 	})
@@ -334,7 +334,7 @@ func TestAuditLogger_WithIDGenerator(t *testing.T) {
 	defer al.Close()
 
 	entry := &AuditEntry{ComponentName: "test", OperationType: "op"}
-	al.Log(context.Background(), entry)
+	_ = al.Log(context.Background(), entry)
 	if entry.EntryID != "fixed_id" {
 		t.Fatalf("custom ID: got %q", entry.EntryID)
 	}
@@ -356,7 +356,7 @@ func TestEventLogger_LogEvent(t *testing.T) {
 	})
 
 	var eventType, action string
-	db.QueryRow("SELECT event_type, action FROM business_event_logs LIMIT 1").Scan(&eventType, &action)
+	_ = db.QueryRow("SELECT event_type, action FROM business_event_logs LIMIT 1").Scan(&eventType, &action)
 	if eventType != "user_created" {
 		t.Fatalf("event_type: got %q", eventType)
 	}
@@ -378,7 +378,7 @@ func TestEventLogger_WithIDGenerator(t *testing.T) {
 	})
 
 	var eventID string
-	db.QueryRow("SELECT event_id FROM business_event_logs LIMIT 1").Scan(&eventID)
+	_ = db.QueryRow("SELECT event_id FROM business_event_logs LIMIT 1").Scan(&eventID)
 	if eventID != "evt_custom" {
 		t.Fatalf("custom event_id: got %q", eventID)
 	}
@@ -390,8 +390,8 @@ func TestCleanup_Retention(t *testing.T) {
 	db := setupObsDB(t)
 
 	oldTs := time.Now().Add(-40 * 24 * time.Hour).Unix()
-	db.Exec("INSERT INTO http_request_logs (method, path, created_at) VALUES ('GET', '/test', ?)", oldTs)
-	db.Exec("INSERT INTO business_event_logs (event_id, event_type, service_name, action, success, created_at) VALUES ('e1', 'test', 'svc', 'act', 1, ?)", oldTs)
+	_, _ = db.Exec("INSERT INTO http_request_logs (method, path, created_at) VALUES ('GET', '/test', ?)", oldTs)
+	_, _ = db.Exec("INSERT INTO business_event_logs (event_id, event_type, service_name, action, success, created_at) VALUES ('e1', 'test', 'svc', 'act', 1, ?)", oldTs)
 
 	err := Cleanup(context.Background(), db, RetentionConfig{
 		HTTPLogsDays:  30,
@@ -402,8 +402,8 @@ func TestCleanup_Retention(t *testing.T) {
 	}
 
 	var httpCount, eventCount int
-	db.QueryRow("SELECT COUNT(*) FROM http_request_logs").Scan(&httpCount)
-	db.QueryRow("SELECT COUNT(*) FROM business_event_logs").Scan(&eventCount)
+	_ = db.QueryRow("SELECT COUNT(*) FROM http_request_logs").Scan(&httpCount)
+	_ = db.QueryRow("SELECT COUNT(*) FROM business_event_logs").Scan(&eventCount)
 	if httpCount != 0 {
 		t.Fatalf("http_request_logs: got %d", httpCount)
 	}
@@ -416,7 +416,7 @@ func TestCleanup_SkipsZeroDays(t *testing.T) {
 	db := setupObsDB(t)
 
 	oldTs := time.Now().Add(-40 * 24 * time.Hour).Unix()
-	db.Exec("INSERT INTO http_request_logs (method, path, created_at) VALUES ('GET', '/test', ?)", oldTs)
+	_, _ = db.Exec("INSERT INTO http_request_logs (method, path, created_at) VALUES ('GET', '/test', ?)", oldTs)
 
 	err := Cleanup(context.Background(), db, RetentionConfig{
 		HTTPLogsDays: 0, // disabled
@@ -426,7 +426,7 @@ func TestCleanup_SkipsZeroDays(t *testing.T) {
 	}
 
 	var count int
-	db.QueryRow("SELECT COUNT(*) FROM http_request_logs").Scan(&count)
+	_ = db.QueryRow("SELECT COUNT(*) FROM http_request_logs").Scan(&count)
 	if count != 1 {
 		t.Fatalf("should not clean when days=0: got %d", count)
 	}

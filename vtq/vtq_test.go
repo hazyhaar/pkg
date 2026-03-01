@@ -72,7 +72,7 @@ func TestAck(t *testing.T) {
 	q := newQ(t, db, vtq.Options{Visibility: time.Second})
 	ctx := context.Background()
 
-	q.Publish(ctx, "j1", nil)
+	_ = q.Publish(ctx, "j1", nil)
 	job, _ := q.Claim(ctx)
 	if err := q.Ack(ctx, job.ID); err != nil {
 		t.Fatal(err)
@@ -89,7 +89,7 @@ func TestNack(t *testing.T) {
 	q := newQ(t, db, vtq.Options{Visibility: 10 * time.Second})
 	ctx := context.Background()
 
-	q.Publish(ctx, "j1", []byte("retry-me"))
+	_ = q.Publish(ctx, "j1", []byte("retry-me"))
 	job, _ := q.Claim(ctx)
 
 	// Nack makes it visible again immediately.
@@ -114,8 +114,8 @@ func TestVisibilityTimeout(t *testing.T) {
 	q := newQ(t, db, vtq.Options{Visibility: 50 * time.Millisecond})
 	ctx := context.Background()
 
-	q.Publish(ctx, "j1", nil)
-	q.Claim(ctx) // claimed, invisible for 50ms
+	_ = q.Publish(ctx, "j1", nil)
+	_, _ = q.Claim(ctx) // claimed, invisible for 50ms
 
 	// Immediately invisible.
 	job, _ := q.Claim(ctx)
@@ -143,7 +143,7 @@ func TestExtend(t *testing.T) {
 	q := newQ(t, db, vtq.Options{Visibility: 50 * time.Millisecond})
 	ctx := context.Background()
 
-	q.Publish(ctx, "j1", nil)
+	_ = q.Publish(ctx, "j1", nil)
 	job, _ := q.Claim(ctx)
 
 	// Extend by 500ms — should not reappear after the original 50ms.
@@ -166,7 +166,7 @@ func TestExtendAfterTimeoutExpired(t *testing.T) {
 	q := newQ(t, db, vtq.Options{Visibility: 50 * time.Millisecond})
 	ctx := context.Background()
 
-	q.Publish(ctx, "j1", nil)
+	_ = q.Publish(ctx, "j1", nil)
 
 	// Consumer A claims the job.
 	jobA, _ := q.Claim(ctx)
@@ -203,7 +203,7 @@ func TestExtendStillHolder(t *testing.T) {
 	q := newQ(t, db, vtq.Options{Visibility: 500 * time.Millisecond})
 	ctx := context.Background()
 
-	q.Publish(ctx, "j1", nil)
+	_ = q.Publish(ctx, "j1", nil)
 	job, _ := q.Claim(ctx)
 	if job == nil {
 		t.Fatal("expected a job")
@@ -225,7 +225,7 @@ func TestMaxAttempts(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	q.Publish(ctx, "j1", nil)
+	_ = q.Publish(ctx, "j1", nil)
 
 	// Claim and nack twice to reach max attempts.
 	for i := 0; i < 2; i++ {
@@ -237,7 +237,7 @@ func TestMaxAttempts(t *testing.T) {
 		if job == nil {
 			t.Fatalf("expected job on attempt %d", i+1)
 		}
-		q.Nack(ctx, job.ID)
+		_ = q.Nack(ctx, job.ID)
 	}
 
 	// Third attempt: job has attempts=3 > MaxAttempts=2.
@@ -271,8 +271,8 @@ func TestMultipleQueues(t *testing.T) {
 	q2 := newQ(t, db, vtq.Options{Queue: "beta", Visibility: time.Second})
 	ctx := context.Background()
 
-	q1.Publish(ctx, "a1", []byte("alpha"))
-	q2.Publish(ctx, "b1", []byte("beta"))
+	_ = q1.Publish(ctx, "a1", []byte("alpha"))
+	_ = q2.Publish(ctx, "b1", []byte("beta"))
 
 	j1, _ := q1.Claim(ctx)
 	j2, _ := q2.Claim(ctx)
@@ -299,9 +299,9 @@ func TestRunConsumer(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	q.Publish(ctx, "j1", []byte("one"))
-	q.Publish(ctx, "j2", []byte("two"))
-	q.Publish(ctx, "j3", []byte("three"))
+	_ = q.Publish(ctx, "j1", []byte("one"))
+	_ = q.Publish(ctx, "j2", []byte("two"))
+	_ = q.Publish(ctx, "j3", []byte("three"))
 
 	var mu sync.Mutex
 	var got []string
@@ -334,7 +334,7 @@ func TestRunHandlerError(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	q.Publish(ctx, "j1", nil)
+	_ = q.Publish(ctx, "j1", nil)
 
 	var mu sync.Mutex
 	attempts := 0
@@ -366,8 +366,8 @@ func TestPurge(t *testing.T) {
 	q := newQ(t, db, vtq.Options{})
 	ctx := context.Background()
 
-	q.Publish(ctx, "j1", nil)
-	q.Publish(ctx, "j2", nil)
+	_ = q.Publish(ctx, "j1", nil)
+	_ = q.Publish(ctx, "j2", nil)
 
 	if err := q.Purge(ctx); err != nil {
 		t.Fatal(err)
@@ -388,7 +388,7 @@ func TestLeaderElection(t *testing.T) {
 	ctx := context.Background()
 
 	// The "leadership token" — a single permanent row.
-	q.Publish(ctx, "leader-token", nil)
+	_ = q.Publish(ctx, "leader-token", nil)
 
 	// Instance A claims leadership.
 	jobA, _ := q.Claim(ctx)
@@ -420,7 +420,7 @@ func TestBatchClaim(t *testing.T) {
 	ctx := context.Background()
 
 	for i := range 5 {
-		q.Publish(ctx, fmt.Sprintf("j%d", i+1), []byte(fmt.Sprintf("payload-%d", i+1)))
+		_ = q.Publish(ctx, fmt.Sprintf("j%d", i+1), []byte(fmt.Sprintf("payload-%d", i+1)))
 	}
 
 	jobs, err := q.BatchClaim(ctx, 3)
@@ -469,8 +469,8 @@ func TestBatchClaimMoreThanAvailable(t *testing.T) {
 	q := newQ(t, db, vtq.Options{Visibility: time.Second})
 	ctx := context.Background()
 
-	q.Publish(ctx, "j1", nil)
-	q.Publish(ctx, "j2", nil)
+	_ = q.Publish(ctx, "j1", nil)
+	_ = q.Publish(ctx, "j2", nil)
 
 	jobs, err := q.BatchClaim(ctx, 10)
 	if err != nil {
@@ -491,7 +491,7 @@ func TestRunBatch(t *testing.T) {
 
 	const total = 10
 	for i := range total {
-		q.Publish(ctx, fmt.Sprintf("j%d", i+1), nil)
+		_ = q.Publish(ctx, fmt.Sprintf("j%d", i+1), nil)
 	}
 
 	var processed atomic.Int32
@@ -529,7 +529,7 @@ func TestRunBatchConcurrency(t *testing.T) {
 	const maxConc = 2
 
 	for i := range total {
-		q.Publish(ctx, fmt.Sprintf("j%d", i+1), nil)
+		_ = q.Publish(ctx, fmt.Sprintf("j%d", i+1), nil)
 	}
 
 	var current atomic.Int32

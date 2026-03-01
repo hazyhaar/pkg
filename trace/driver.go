@@ -50,8 +50,8 @@ func (c *tracingConn) PrepareContext(ctx context.Context, query string) (driver.
 	return c.Prepare(query)
 }
 
-func (c *tracingConn) Begin() (driver.Tx, error) {
-	return c.Conn.Begin()
+func (c *tracingConn) Begin() (driver.Tx, error) { //nolint:staticcheck // implementing deprecated interface method for database/sql driver compatibility
+	return c.Conn.Begin() //nolint:staticcheck // implementing deprecated interface method for database/sql driver compatibility
 }
 
 type tracingStmt struct {
@@ -66,7 +66,7 @@ func (s *tracingStmt) ExecContext(ctx context.Context, args []driver.NamedValue)
 	if ec, ok := s.Stmt.(driver.StmtExecContext); ok {
 		result, err = ec.ExecContext(ctx, args)
 	} else {
-		result, err = s.Stmt.Exec(namedToValues(args))
+		result, err = s.Stmt.Exec(namedToValues(args)) //nolint:staticcheck // fallback for drivers not implementing StmtExecContext
 	}
 	s.record(ctx, "Exec", time.Since(start), err)
 	return result, err
@@ -79,7 +79,7 @@ func (s *tracingStmt) QueryContext(ctx context.Context, args []driver.NamedValue
 	if qc, ok := s.Stmt.(driver.StmtQueryContext); ok {
 		rows, err = qc.QueryContext(ctx, args)
 	} else {
-		rows, err = s.Stmt.Query(namedToValues(args))
+		rows, err = s.Stmt.Query(namedToValues(args)) //nolint:staticcheck // fallback for drivers not implementing StmtQueryContext
 	}
 	s.record(ctx, "Query", time.Since(start), err)
 	return rows, err
@@ -87,14 +87,14 @@ func (s *tracingStmt) QueryContext(ctx context.Context, args []driver.NamedValue
 
 func (s *tracingStmt) Exec(args []driver.Value) (driver.Result, error) {
 	start := time.Now()
-	result, err := s.Stmt.Exec(args)
+	result, err := s.Stmt.Exec(args) //nolint:staticcheck // implementing deprecated interface method for database/sql driver compatibility
 	s.record(context.Background(), "Exec", time.Since(start), err)
 	return result, err
 }
 
 func (s *tracingStmt) Query(args []driver.Value) (driver.Rows, error) {
 	start := time.Now()
-	rows, err := s.Stmt.Query(args)
+	rows, err := s.Stmt.Query(args) //nolint:staticcheck // implementing deprecated interface method for database/sql driver compatibility
 	s.record(context.Background(), "Query", time.Since(start), err)
 	return rows, err
 }

@@ -132,12 +132,12 @@ func (m *MaintenanceMode) Middleware(next http.Handler) http.Handler {
 		w.WriteHeader(http.StatusServiceUnavailable)
 
 		if len(m.page) > 0 {
-			w.Write(m.page)
+			_, _ = w.Write(m.page)
 			return
 		}
 
 		msg := m.Message()
-		w.Write([]byte(defaultMaintenancePage(msg)))
+		_, _ = w.Write([]byte(defaultMaintenancePage(msg)))
 	})
 }
 

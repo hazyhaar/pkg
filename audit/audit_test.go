@@ -18,8 +18,8 @@ func setupTestDB(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatal(err)
 	}
-	db.Exec("PRAGMA journal_mode=WAL")
-	db.Exec("PRAGMA foreign_keys=ON")
+	_, _ = db.Exec("PRAGMA journal_mode=WAL")
+	_, _ = db.Exec("PRAGMA foreign_keys=ON")
 	t.Cleanup(func() { db.Close() })
 	return db
 }
@@ -34,7 +34,7 @@ func TestSQLiteLogger_Init(t *testing.T) {
 	}
 
 	var count int
-	db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='audit_log'").Scan(&count)
+	_ = db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='audit_log'").Scan(&count)
 	if count != 1 {
 		t.Fatal("audit_log table not created")
 	}
@@ -44,7 +44,7 @@ func TestSQLiteLogger_Log_Sync(t *testing.T) {
 	db := setupTestDB(t)
 	logger := NewSQLiteLogger(db)
 	defer logger.Close()
-	logger.Init()
+	_ = logger.Init()
 
 	ctx := context.Background()
 	entry := &Entry{
@@ -71,7 +71,7 @@ func TestSQLiteLogger_Log_Sync(t *testing.T) {
 
 	// Verify in DB.
 	var action string
-	db.QueryRow("SELECT action FROM audit_log WHERE entry_id = ?", entry.EntryID).Scan(&action)
+	_ = db.QueryRow("SELECT action FROM audit_log WHERE entry_id = ?", entry.EntryID).Scan(&action)
 	if action != "test_action" {
 		t.Fatalf("DB action: got %q", action)
 	}
@@ -80,7 +80,7 @@ func TestSQLiteLogger_Log_Sync(t *testing.T) {
 func TestSQLiteLogger_LogAsync(t *testing.T) {
 	db := setupTestDB(t)
 	logger := NewSQLiteLogger(db)
-	logger.Init()
+	_ = logger.Init()
 
 	entry := &Entry{Action: "async_test"}
 	logger.LogAsync(entry)
@@ -89,7 +89,7 @@ func TestSQLiteLogger_LogAsync(t *testing.T) {
 	logger.Close()
 
 	var count int
-	db.QueryRow("SELECT COUNT(*) FROM audit_log WHERE action='async_test'").Scan(&count)
+	_ = db.QueryRow("SELECT COUNT(*) FROM audit_log WHERE action='async_test'").Scan(&count)
 	if count != 1 {
 		t.Fatalf("async entry count: got %d", count)
 	}
@@ -99,13 +99,13 @@ func TestSQLiteLogger_FillDefaults_Error(t *testing.T) {
 	db := setupTestDB(t)
 	logger := NewSQLiteLogger(db)
 	defer logger.Close()
-	logger.Init()
+	_ = logger.Init()
 
 	entry := &Entry{
 		Action: "failing_op",
 		Error:  "something broke",
 	}
-	logger.Log(context.Background(), entry)
+	_ = logger.Log(context.Background(), entry)
 
 	if entry.Status != "error" {
 		t.Fatalf("status for error entry: got %q", entry.Status)
@@ -122,10 +122,10 @@ func TestSQLiteLogger_WithIDGenerator(t *testing.T) {
 
 	logger := NewSQLiteLogger(db, WithIDGenerator(gen))
 	defer logger.Close()
-	logger.Init()
+	_ = logger.Init()
 
 	entry := &Entry{Action: "custom_gen"}
-	logger.Log(context.Background(), entry)
+	_ = logger.Log(context.Background(), entry)
 
 	if entry.EntryID != "custom_id" {
 		t.Fatalf("custom ID: got %q", entry.EntryID)
@@ -135,7 +135,7 @@ func TestSQLiteLogger_WithIDGenerator(t *testing.T) {
 func TestMiddleware_Success(t *testing.T) {
 	db := setupTestDB(t)
 	logger := NewSQLiteLogger(db)
-	logger.Init()
+	_ = logger.Init()
 
 	base := func(ctx context.Context, req any) (any, error) {
 		return "result", nil
@@ -160,7 +160,7 @@ func TestMiddleware_Success(t *testing.T) {
 	logger.Close()
 
 	var action, userID, transport, status string
-	db.QueryRow("SELECT action, user_id, transport, status FROM audit_log WHERE action='test_op'").
+	_ = db.QueryRow("SELECT action, user_id, transport, status FROM audit_log WHERE action='test_op'").
 		Scan(&action, &userID, &transport, &status)
 	if action != "test_op" {
 		t.Fatalf("action: got %q", action)
@@ -179,7 +179,7 @@ func TestMiddleware_Success(t *testing.T) {
 func TestMiddleware_Error(t *testing.T) {
 	db := setupTestDB(t)
 	logger := NewSQLiteLogger(db)
-	logger.Init()
+	_ = logger.Init()
 
 	errFail := errors.New("endpoint failed")
 	base := func(ctx context.Context, req any) (any, error) {
@@ -197,7 +197,7 @@ func TestMiddleware_Error(t *testing.T) {
 	logger.Close()
 
 	var status, errMsg string
-	db.QueryRow("SELECT status, error_message FROM audit_log WHERE action='fail_op'").
+	_ = db.QueryRow("SELECT status, error_message FROM audit_log WHERE action='fail_op'").
 		Scan(&status, &errMsg)
 	if status != "error" {
 		t.Fatalf("status: got %q", status)
@@ -210,7 +210,7 @@ func TestMiddleware_Error(t *testing.T) {
 func TestSQLiteLogger_BatchFlush(t *testing.T) {
 	db := setupTestDB(t)
 	logger := NewSQLiteLogger(db)
-	logger.Init()
+	_ = logger.Init()
 
 	for i := 0; i < 50; i++ {
 		logger.LogAsync(&Entry{Action: "batch_test"})
@@ -221,7 +221,7 @@ func TestSQLiteLogger_BatchFlush(t *testing.T) {
 	logger.Close()
 
 	var count int
-	db.QueryRow("SELECT COUNT(*) FROM audit_log WHERE action='batch_test'").Scan(&count)
+	_ = db.QueryRow("SELECT COUNT(*) FROM audit_log WHERE action='batch_test'").Scan(&count)
 	if count != 50 {
 		t.Fatalf("batch count: got %d, want 50", count)
 	}
