@@ -1,3 +1,5 @@
+> **Schema technique** : voir [`vtq_schem.md`](vtq_schem.md) — lecture prioritaire avant tout code source.
+
 # vtq
 
 Responsabilite: Visibility Timeout Queue SQLite-native — pub/claim/ack/nack avec timeout de visibilite, batch processing concurrent, et election de leader par calibration.

@@ -1,3 +1,5 @@
+> **Schema technique** : voir [`dbopen_schem.md`](dbopen_schem.md) — lecture prioritaire avant tout code source.
+
 # dbopen
 
 Responsabilite: Helper d'ouverture SQLite appliquant les pragmas production-safe HOROS via DSN `_pragma=` (per-connection) avec `_txlock=immediate`, retry SQLITE_BUSY et chargement de schemas.

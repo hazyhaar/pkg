@@ -1,3 +1,5 @@
+> **Schema technique** : voir [`feedback_schem.md`](feedback_schem.md) — lecture prioritaire avant tout code source.
+
 # feedback
 
 Responsabilite: Widget feedback integrable fournissant formulaire de soumission, liste JSON/HTML des commentaires, et assets JS/CSS embarques.

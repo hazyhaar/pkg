@@ -1,3 +1,5 @@
+> **Schema technique** : voir [`dbsync_schem.md`](dbsync_schem.md) — lecture prioritaire avant tout code source.
+
 # dbsync
 
 Responsabilite: Replication SQLite BO-vers-FO via QUIC -- le BO produit des snapshots filtres, les pousse aux FO qui les valident (SHA-256) et font un swap atomique.

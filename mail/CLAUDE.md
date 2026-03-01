@@ -1,3 +1,5 @@
+> **Schema technique** : voir [`mail_schem.md`](mail_schem.md) — lecture prioritaire avant tout code source.
+
 # mail
 
 Responsabilité : Service SMTP partagé — STARTTLS + LOGIN auth (compatible OVH).

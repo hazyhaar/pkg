@@ -1,3 +1,5 @@
+> **Schema technique** : voir [`connectivity_schem.md`](connectivity_schem.md) — lecture prioritaire avant tout code source.
+
 # connectivity
 
 Responsabilite: Smart service router dispatchant les appels localement (in-memory) ou a distance (QUIC/HTTP/MCP) selon une table SQLite rechargee a chaud -- pattern "Job as Library".

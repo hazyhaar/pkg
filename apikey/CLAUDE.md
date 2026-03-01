@@ -1,3 +1,5 @@
+> **Schema technique** : voir [`apikey_schem.md`](apikey_schem.md) — lecture prioritaire avant tout code source.
+
 # apikey
 
 Responsabilite: Cycle de vie des cles API (horoskeys) — generation, resolution (SHA-256), revocation, expiration, scoping services, scoping dossier, rate limit.

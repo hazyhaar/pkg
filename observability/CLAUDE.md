@@ -1,3 +1,5 @@
+> **Schema technique** : voir [`observability_schem.md`](observability_schem.md) — lecture prioritaire avant tout code source.
+
 # observability
 
 Responsabilite: Monitoring SQLite-natif remplacant Prometheus/Loki/Consul — audit trail async, heartbeat workers, metriques timeseries, event logger, et retention cleanup.

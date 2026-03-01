@@ -1,3 +1,5 @@
+> **Schema technique** : voir [`audit_schem.md`](audit_schem.md) — lecture prioritaire avant tout code source.
+
 # audit
 
 Responsabilite: Logger d'audit SQLite asynchrone avec batch writes -- enregistre qui a fait quoi, quand, via quelle couche de transport.

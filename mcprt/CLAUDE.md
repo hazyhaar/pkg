@@ -1,3 +1,5 @@
+> **Schema technique** : voir [`mcprt_schem.md`](mcprt_schem.md) — lecture prioritaire avant tout code source.
+
 # mcprt
 
 Responsabilite: Runtime MCP dynamique — registre d'outils SQLite avec hot-reload, bridge vers mcp.Server, policy RBAC, handlers SQL/Go, et audit hooks.

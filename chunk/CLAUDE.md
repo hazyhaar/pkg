@@ -1,3 +1,5 @@
+> **Schema technique** : voir [`chunk_schem.md`](chunk_schem.md) — lecture prioritaire avant tout code source.
+
 # chunk
 
 Responsabilite: Decoupe du texte en fragments avec overlap pour RAG et indexation FTS5, avec respect des frontieres de paragraphes.

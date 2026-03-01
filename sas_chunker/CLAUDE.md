@@ -1,3 +1,5 @@
+> **Schema technique** : voir [`sas_chunker_schem.md`](sas_chunker_schem.md) — lecture prioritaire avant tout code source.
+
 # sas_chunker
 
 Responsabilite: Decoupage de fichiers en chunks SHA-256 verifies avec manifest JSON, reassemblage, et verification d'integrite.

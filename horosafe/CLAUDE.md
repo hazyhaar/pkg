@@ -1,3 +1,5 @@
+> **Schema technique** : voir [`horosafe_schem.md`](horosafe_schem.md) — lecture prioritaire avant tout code source.
+
 # horosafe
 
 Responsabilite: Primitives de securite partagees -- validation secrets (longueur min), prevention SSRF (URL vers IP privees), protection path traversal, I/O borne, et validation identifiants.

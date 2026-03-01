@@ -1,3 +1,5 @@
+> **Schema technique** : voir [`authproxy_schem.md`](authproxy_schem.md) — lecture prioritaire avant tout code source.
+
 # authproxy
 
 Responsabilite: Proxy HTTP relayant les requetes d'authentification FO (front-office) vers l'API interne BO (back-office), avec traduction JSON -> cookies + redirects.

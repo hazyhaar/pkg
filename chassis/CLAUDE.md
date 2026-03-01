@@ -1,3 +1,5 @@
+> **Schema technique** : voir [`chassis_schem.md`](chassis_schem.md) — lecture prioritaire avant tout code source.
+
 # chassis
 
 Responsabilite: Serveur unifie exposant HTTP/1.1+HTTP/2 sur TCP et HTTP/3+MCP sur QUIC, meme port, avec ALPN demux.

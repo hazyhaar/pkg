@@ -1,3 +1,5 @@
+> **Schema technique** : voir [`horosembed_schem.md`](horosembed_schem.md) — lecture prioritaire avant tout code source.
+
 # horosembed
 
 Responsabilite: Client embeddings transport-agnostique — convertit du texte en vecteurs float32 via n'importe quel serveur compatible OpenAI /v1/embeddings.

@@ -1,3 +1,5 @@
+> **Schema technique** : voir [`shield_schem.md`](shield_schem.md) — lecture prioritaire avant tout code source.
+
 # shield
 
 Responsabilite: Middleware HTTP securite reutilisable — rate limiting SQLite, security headers (CSP/X-Frame/nosniff), flash messages cookie, trace ID, max body, HEAD-to-GET, et maintenance mode.

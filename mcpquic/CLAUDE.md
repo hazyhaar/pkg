@@ -1,3 +1,5 @@
+> **Schema technique** : voir [`mcpquic_schem.md`](mcpquic_schem.md) — lecture prioritaire avant tout code source.
+
 # mcpquic
 
 Responsabilite: Transport MCP-over-QUIC (client + server + listener) avec ALPN "mcp-quic-v1", magic bytes "MCP1", et TLS 1.3 obligatoire.

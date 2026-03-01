@@ -1,5 +1,7 @@
 # CLAUDE.md — hazyhaar/pkg
 
+> **Découverte** — Chaque sous-package dispose d'un schéma technique ASCII (`{pkg}_schem.md`) dans son dossier. **Lire le `*_schem.md` EN PREMIER** avant tout fichier source. Le schéma global écosystème est à la racine : [`../HOROS_ECOSYSTEM_schem.md`](../HOROS_ECOSYSTEM_schem.md).
+
 > **Règle n°1** — Un bug trouvé en audit mais pas par un test est d'abord une faille de test. Écrire le test rouge, puis fixer. Pas de fix sans test.
 
 ## Ce que c'est
@@ -21,6 +23,7 @@ Package Go partagé de l'écosystème HOROS. Bibliothèque de composants réutil
 | `channels` | Dispatching multi-canal (Discord, Telegram, WhatsApp, webhooks) |
 | `chunk` | Découpage texte RAG avec overlap, paragraph-aware (migré depuis chrc) |
 | `connectivity` | Router inter-services, circuit breaker, retry, factory HTTP/MCP |
+| `docpipe` | Extraction documents multi-format (PDF, DOCX, ODT, HTML, TXT, MD) — pure Go, quality scoring (migré depuis chrc) |
 | `dbopen` | Helper ouverture SQLite avec pragmas + retry |
 | `dbsync` | Réplication SQLite BO→FO via QUIC (publisher, subscriber, filter, snapshot) |
 | `feedback` | Widget feedback intégrable (HTML/CSS/JS + handlers) |

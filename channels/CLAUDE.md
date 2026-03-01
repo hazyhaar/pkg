@@ -1,3 +1,5 @@
+> **Schema technique** : voir [`channels_schem.md`](channels_schem.md) — lecture prioritaire avant tout code source.
+
 # channels
 
 Responsabilite: Framework de messagerie bidirectionnelle multi-plateforme (WhatsApp, Telegram, Discord, Signal, Matrix, webhooks) avec hot-reload SQLite et dispatching inbound/outbound.

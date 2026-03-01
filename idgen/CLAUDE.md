@@ -1,3 +1,5 @@
+> **Schema technique** : voir [`idgen_schem.md`](idgen_schem.md) — lecture prioritaire avant tout code source.
+
 # idgen
 
 Responsabilite: Generation d'identifiants uniques pluggables (UUIDv7, NanoID, prefixed, timestamped) pour tout l'ecosysteme HOROS.

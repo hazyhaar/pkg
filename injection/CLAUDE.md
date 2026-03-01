@@ -1,3 +1,5 @@
+> **Schema technique** : voir [`injection_schem.md`](injection_schem.md) — lecture prioritaire avant tout code source.
+
 # injection
 
 Responsabilite: Detection d'injection de prompt multi-couche — normalisation Unicode, intent matching exact/fuzzy, decodage base64 smuggling. Zero regex, zero ReDoS.

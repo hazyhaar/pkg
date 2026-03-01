@@ -1,3 +1,5 @@
+> **Schema technique** : voir [`trace_schem.md`](trace_schem.md) — lecture prioritaire avant tout code source.
+
 # trace
 
 Responsabilite: Tracing SQL transparent via un driver "sqlite-trace" wrappant modernc.org/sqlite — interception Exec/Query, logging slog adaptatif, persistence async locale (Store) ou distante (RemoteStore FO->BO).

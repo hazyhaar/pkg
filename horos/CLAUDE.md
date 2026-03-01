@@ -1,3 +1,5 @@
+> **Schema technique** : voir [`horos_schem.md`](horos_schem.md) — lecture prioritaire avant tout code source.
+
 # horos
 
 Responsabilite: Type system HOROS -- contrats de service types, format envelope wire (2B format + 4B CRC-32C + payload), erreurs structurees inter-services, et registre de formats.

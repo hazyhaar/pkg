@@ -1,3 +1,5 @@
+> **Schema technique** : voir [`watch_schem.md`](watch_schem.md) — lecture prioritaire avant tout code source.
+
 # watch
 
 Responsabilite: Polling generique de changements SQLite avec detection par PRAGMA data_version, debounce, observabilite integree, et WaitForVersion synchrone.

@@ -1,3 +1,5 @@
+> **Schema technique** : voir [`auth_schem.md`](auth_schem.md) — lecture prioritaire avant tout code source.
+
 # auth
 
 Responsabilite: Authentification JWT (generation, validation HS256), cookies HttpOnly cross-subdomain, middleware HTTP d'extraction claims, et OAuth2 Google.

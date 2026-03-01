@@ -1,3 +1,5 @@
+> **Schema technique** : voir [`kit_schem.md`](kit_schem.md) — lecture prioritaire avant tout code source.
+
 # kit
 
 Responsabilite: Context helpers, endpoint pattern transport-agnostique, et bridge MCP tool registration pour partager la logique metier entre HTTP et MCP.
