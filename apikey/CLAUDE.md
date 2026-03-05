@@ -2,7 +2,7 @@
 
 # apikey
 
-Cycle de vie des cles API (horoskeys) — generation, resolution SHA-256, revocation, expiration, scoping services, scoping dossier, rate limit.
+Responsabilite: Cycle de vie des cles API (horoskeys) — generation, resolution SHA-256, revocation, expiration, scoping services, scoping dossier, rate limit.
 
 ## Fiche technique
 
