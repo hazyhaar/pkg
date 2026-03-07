@@ -100,6 +100,8 @@ func Sync() {
 	mu.RUnlock()
 
 	if f != nil {
-		f.Sync()
+		if err := f.Sync(); err != nil {
+			slog.Warn("shardlog: sync failed", "error", err)
+		}
 	}
 }
