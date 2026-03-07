@@ -81,7 +81,7 @@ func SplitReader(r io.Reader, originalName, outDir string, chunkSize int64, prog
 
 		fileName := fmt.Sprintf("chunk_%05d.bin", idx)
 		chunkPath := filepath.Join(outDir, fileName)
-		if err := os.WriteFile(chunkPath, data, 0644); err != nil {
+		if err := os.WriteFile(chunkPath, data, 0600); err != nil {
 			return nil, fmt.Errorf("write chunk %d: %w", idx, err)
 		}
 
@@ -120,7 +120,7 @@ func SplitReader(r io.Reader, originalName, outDir string, chunkSize int64, prog
 	if err != nil {
 		return nil, fmt.Errorf("marshal manifest: %w", err)
 	}
-	if err := os.WriteFile(manifestPath, mData, 0644); err != nil {
+	if err := os.WriteFile(manifestPath, mData, 0600); err != nil {
 		return nil, fmt.Errorf("write manifest: %w", err)
 	}
 
@@ -194,7 +194,7 @@ func Split(srcPath, outDir string, chunkSize int64, progress ProgressFunc) (*Man
 
 		fileName := fmt.Sprintf("chunk_%05d.bin", i)
 		chunkPath := filepath.Join(outDir, fileName)
-		if err = os.WriteFile(chunkPath, data, 0644); err != nil {
+		if err = os.WriteFile(chunkPath, data, 0600); err != nil {
 			return nil, fmt.Errorf("write chunk %d: %w", i, err)
 		}
 
@@ -219,7 +219,7 @@ func Split(srcPath, outDir string, chunkSize int64, progress ProgressFunc) (*Man
 	if err != nil {
 		return nil, fmt.Errorf("marshal manifest: %w", err)
 	}
-	if err := os.WriteFile(manifestPath, mData, 0644); err != nil {
+	if err := os.WriteFile(manifestPath, mData, 0600); err != nil {
 		return nil, fmt.Errorf("write manifest: %w", err)
 	}
 
