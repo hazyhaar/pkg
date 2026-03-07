@@ -139,8 +139,16 @@ func main() {
 	mux.Handle("/v1/dossiers/", contextMiddleware(requestIDGen, dossierHandler(ing)))
 	mux.HandleFunc("/v1/health", healthHandler(ing, obsDB))
 
+	srv := &http.Server{
+		Addr:              cfg.Listen,
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       5 * time.Minute,
+		WriteTimeout:      5 * time.Minute,
+		IdleTimeout:       120 * time.Second,
+	}
 	slog.Info("sas_ingester listening", "addr", cfg.Listen)
-	if err = http.ListenAndServe(cfg.Listen, mux); err != nil {
+	if err = srv.ListenAndServe(); err != nil {
 		slog.Error("serve", "error", err)
 		os.Exit(1)
 	}

@@ -25,6 +25,7 @@ import (
 	"net"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/quic-go/quic-go"
@@ -129,9 +130,10 @@ func (s *Server) Start(ctx context.Context) error {
 	tcpTLS.NextProtos = []string{"h2", "http/1.1"}
 
 	s.tcpServer = &http.Server{
-		Addr:      s.addr,
-		Handler:   handler,
-		TLSConfig: tcpTLS,
+		Addr:              s.addr,
+		Handler:           handler,
+		TLSConfig:         tcpTLS,
+		ReadHeaderTimeout: 10 * time.Second,
 	}
 
 	// --- UDP: QUIC (HTTP/3 + MCP) ---
