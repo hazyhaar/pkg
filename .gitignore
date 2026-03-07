@@ -1,4 +1,9 @@
 bin/
 *.db
+*.db-wal
+*.db-shm
+*.db-journal
+.env
+.env.local
 /migrate-shards
 2026-*.txt
