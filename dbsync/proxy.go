@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Reverse proxy forwarding FO write requests to the BO endpoint that owns the read-write database.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS WriteProxy, NewWriteProxy, RedirectHandler
+
 package dbsync
 
 import (

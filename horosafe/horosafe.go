@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Security primitives: secret validation, SSRF-safe URL checks, path traversal guards, identifier validation, and bounded I/O.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS MinSecretLen, MaxResponseBody, ErrSecretTooShort, ErrPathTraversal, ErrSSRF, ErrUnsafeScheme, ValidateSecret, SafePath, ValidateURL, ValidateIdentifier, LimitedReadAll
+
 // Package horosafe provides security primitives shared across the HOROS
 // service ecosystem: secret validation, URL safety checks (SSRF prevention),
 // path traversal guards, and bounded I/O helpers.

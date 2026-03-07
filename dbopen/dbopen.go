@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Opens SQLite databases with HOROS production-safe pragmas via DSN _pragma= (per-connection), schema loading, and test helpers.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS Open, OpenMemory, CheckpointLoop, Option, WithDriver, WithTrace, WithBusyTimeout, WithCacheSize, WithSynchronous, WithMkdirAll, WithSchema, WithSchemaFile, WithoutPing, WithoutForeignKeys
+
 // Package dbopen provides a single function to open an SQLite database with
 // the HOROS production-safe pragmas applied via EXEC (driver-agnostic).
 //
@@ -24,11 +28,14 @@
 package dbopen
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 type config struct {
@@ -94,6 +101,8 @@ func WithoutForeignKeys() Option { return func(c *config) { c.foreignKeys = fals
 //
 //	import _ "modernc.org/sqlite"           // default "sqlite" driver
 //	import _ "github.com/hazyhaar/pkg/trace" // "sqlite-trace" driver
+//
+// CLAUDE:WARN Open requires a blank-imported SQLite driver before call (import _ "modernc.org/sqlite"). Panic at runtime otherwise.
 func Open(path string, opts ...Option) (*sql.DB, error) {
 	cfg := defaults()
 	for _, o := range opts {
@@ -150,6 +159,8 @@ func Open(path string, opts ...Option) (*sql.DB, error) {
 // It sets MaxOpenConns(1) to ensure all queries hit the same in-memory
 // database (each connection to ":memory:" creates a separate database).
 // It registers t.Cleanup to close the database automatically.
+//
+// CLAUDE:WARN OpenMemory forces MaxOpenConns(1) — each :memory: connection is a separate DB. Do not override MaxOpenConns.
 func OpenMemory(t testing.TB, opts ...Option) *sql.DB {
 	t.Helper()
 	db, err := Open(":memory:", opts...)
@@ -181,4 +192,44 @@ func buildDSN(path string, cfg *config) string {
 	}
 
 	return dsn
+}
+
+// CheckpointLoop runs PRAGMA wal_checkpoint(PASSIVE) on db at the given
+// interval until ctx is cancelled. This is necessary when multiple long-lived
+// processes share a WAL-mode database: SQLite's auto-checkpoint cannot fire
+// while any process holds an active read transaction, causing the WAL to grow
+// unbounded. PASSIVE is non-blocking — it checkpoints only pages not currently
+// needed by readers.
+//
+// Call in a goroutine: go dbopen.CheckpointLoop(ctx, db, 1*time.Hour, logger)
+//
+// CLAUDE:WARN CheckpointLoop runs in a goroutine (blocking loop). Must be called as `go CheckpointLoop(...)`. Cancellation via ctx.
+func CheckpointLoop(ctx context.Context, db *sql.DB, interval time.Duration, logger *slog.Logger, hooks ...func(string, string, ...slog.Attr)) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			var busy, log, checkpointed int
+			err := db.QueryRowContext(ctx, "PRAGMA wal_checkpoint(PASSIVE)").Scan(&busy, &log, &checkpointed)
+			if err != nil {
+				if ctx.Err() != nil {
+					return
+				}
+				logger.Warn("wal checkpoint failed", "error", err)
+				continue
+			}
+			if log > 0 {
+				logger.Info("wal checkpoint", "log_pages", log, "checkpointed", checkpointed, "busy", busy)
+				for _, hook := range hooks {
+					hook("shard.checkpoint", "",
+						slog.Int("log_pages", log),
+						slog.Int("checkpointed", checkpointed),
+						slog.Int("busy", busy))
+				}
+			}
+		}
+	}
 }

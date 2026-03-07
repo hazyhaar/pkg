@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Transport-agnostic Endpoint function type and composable Middleware chain for cross-cutting concerns.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS Endpoint, Middleware, Chain
+
 package kit
 
 import "context"

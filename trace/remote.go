@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Remote trace persistence — batches Entry records and POSTs them to a BO endpoint for cross-instance trace collection.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS RemoteStore, NewRemoteStore
+
 package trace
 
 import (
@@ -29,6 +33,7 @@ type RemoteStore struct {
 
 // NewRemoteStore creates a RemoteStore that POSTs trace batches to url.
 // If client is nil, a default client with 5s timeout is used.
+// CLAUDE:WARN Launches goroutine — must call Close() to drain buffer and stop flush loop.
 func NewRemoteStore(url string, client *http.Client) *RemoteStore {
 	if client == nil {
 		client = &http.Client{Timeout: 5 * time.Second}
@@ -44,6 +49,7 @@ func NewRemoteStore(url string, client *http.Client) *RemoteStore {
 }
 
 // RecordAsync queues an entry for async push. Non-blocking; drops if buffer full.
+// CLAUDE:WARN Silently drops entry if buffer full (no error, no log) — by design.
 func (rs *RemoteStore) RecordAsync(e *Entry) {
 	select {
 	case rs.ch <- e:

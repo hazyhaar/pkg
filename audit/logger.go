@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Asynchronous SQLite audit logger with batched writes and configurable ID generation.
+// CLAUDE:DEPENDS idgen
+// CLAUDE:EXPORTS Schema, SQLiteLogger, Option, WithIDGenerator, NewSQLiteLogger
+
 package audit
 
 import (
@@ -46,6 +50,7 @@ func WithIDGenerator(gen idgen.Generator) Option {
 	return func(l *SQLiteLogger) { l.newID = gen }
 }
 
+// CLAUDE:WARN Launches goroutine — must call Close() to drain. LogAsync after Close panics.
 func NewSQLiteLogger(sqlDB *sql.DB, opts ...Option) *SQLiteLogger {
 	l := &SQLiteLogger{
 		db:    sqlDB,
@@ -70,6 +75,7 @@ func (l *SQLiteLogger) Log(_ context.Context, entry *Entry) error {
 	return l.insert(entry)
 }
 
+// CLAUDE:WARN Silently drops entry if buffer full (warn log only). Panics if called after Close().
 func (l *SQLiteLogger) LogAsync(entry *Entry) {
 	l.fillDefaults(entry)
 	select {

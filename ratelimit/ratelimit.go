@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Generic transport-agnostic rate limiter with SQLite-backed rules and in-memory sliding window buckets.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS Limiter, New, RuleConfig, RuleEntry, Option, WithClock, ErrRateLimited, MCPMiddlewareFunc
+
 // Package ratelimit provides a generic, transport-agnostic rate limiter
 // backed by SQLite. It can rate-limit by any key: tool name, user ID, IP
 // address, or any composite key.

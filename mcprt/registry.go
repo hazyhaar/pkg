@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Dynamic tool registry — loads tools from SQLite mcp_tools_registry, dispatches execution to SQL/Go handlers, hot-reloads via watch.Watcher.
+// CLAUDE:DEPENDS idgen, watch
+// CLAUDE:EXPORTS Registry, RegistryOption, WithRegistryIDGenerator, NewRegistry, Schema
+
 package mcprt
 
 import (
@@ -100,6 +104,7 @@ func NewRegistry(db *sql.DB, opts ...RegistryOption) *Registry {
 }
 
 // RegisterGoFunc registers a Go function callable by dynamic tools with handler_type="go_function".
+// CLAUDE:WARN Takes mu.Lock; mutates goFuncs map. Must be called BEFORE Bridge() — bridge snapshots tools at registration.
 func (r *Registry) RegisterGoFunc(name string, fn GoFunc) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -134,6 +139,7 @@ func (r *Registry) migrate() error {
 }
 
 // LoadTools loads all active tools from the mcp_tools_registry table.
+// CLAUDE:WARN Takes mu.Lock; replaces entire tools map. Silently skips malformed tools (logs warn, no error).
 func (r *Registry) LoadTools(ctx context.Context) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -241,6 +247,7 @@ func (r *Registry) ExecuteTool(ctx context.Context, toolName string, params map[
 
 // RunWatcher polls for database changes and reloads tools automatically.
 // It uses watch.Watcher with PRAGMA data_version detection.
+// CLAUDE:WARN Blocking — delegates to watch.OnChange. Must run in goroutine.
 func (r *Registry) RunWatcher(ctx context.Context) {
 	w := watch.New(r.db, watch.Options{
 		Interval: 5 * time.Second,

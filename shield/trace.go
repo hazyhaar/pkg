@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Trace ID middleware — generates a random 8-hex-char trace ID per request, injects it into context and response headers, and attaches a per-request slog logger.
+// CLAUDE:DEPENDS kit
+// CLAUDE:EXPORTS TraceID, GetLogger
+
 package shield
 
 import (

@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY QUIC error codes and sentinel errors for MCP-over-QUIC stream and connection failures.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS ConnectionError, ErrInvalidMagicBytes, ErrUnsupportedALPN, ErrConnectionClosed, ConnErrorNoError, ConnErrorUnsupportedALPN, ConnErrorProtocolViolation
+
 package mcpquic
 
 import (

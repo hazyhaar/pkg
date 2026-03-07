@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY CRUD administration operations on the channels SQLite table (list, get, upsert, delete, enable/disable, auth state).
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS Admin, NewAdmin, ChannelRow
+
 package channels
 
 import (

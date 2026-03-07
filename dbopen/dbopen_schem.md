@@ -3,8 +3,8 @@
 ╠══════════════════════════════════════════════════════════════════════════╣
 ║  Module: github.com/hazyhaar/pkg/dbopen                                ║
 ║  Files:  dbopen.go, retry.go                                           ║
-║  Deps:   stdlib only (database/sql, fmt, os, path/filepath, testing,   ║
-║          context, strings, time) -- leaf package, no internal deps      ║
+║  Deps:   stdlib only (database/sql, fmt, log/slog, os, path/filepath,  ║
+║          testing, context, strings, time) -- leaf package, no int deps  ║
 ╚══════════════════════════════════════════════════════════════════════════╝
 
 OPEN FLOW
@@ -119,11 +119,35 @@ RETRY (retry.go)
   sleepCtx(ctx, d) error
       Context-aware sleep. Returns ctx.Err() if cancelled during wait.
 
+CHECKPOINT LOOP (dbopen.go)
+============================
+
+  CheckpointLoop(ctx, db, interval, logger)
+      │
+      ├── time.NewTicker(interval)
+      │
+      └── loop:
+           ├── <-ctx.Done() → return
+           └── <-ticker.C
+                │
+                └── PRAGMA wal_checkpoint(PASSIVE)
+                     ├── OK  → logger.Info("wal checkpoint", log, checkpointed)
+                     └── err → logger.Warn("wal checkpoint failed", error)
+
+  Prevents unbounded WAL growth when multiple services share a SQLite
+  database. PASSIVE mode does not block writers. Typically called as a
+  background goroutine:
+
+    go dbopen.CheckpointLoop(ctx, db, 5*time.Minute, logger)
+
+  Consumers: HORAG (cmd/horag/main.go)
+
 EXPORTED FUNCTIONS SUMMARY
 ===========================
 
   Open(path string, opts ...Option) (*sql.DB, error)
   OpenMemory(t testing.TB, opts ...Option) *sql.DB
+  CheckpointLoop(ctx context.Context, db *sql.DB, interval time.Duration, logger *slog.Logger)
   RunTx(ctx context.Context, db *sql.DB, fn func(*sql.Tx) error) error
   Exec(ctx context.Context, db *sql.DB, query string, args ...any) (sql.Result, error)
   IsBusy(err error) bool

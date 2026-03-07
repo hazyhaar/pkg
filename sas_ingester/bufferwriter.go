@@ -28,6 +28,13 @@ func NewBufferWriter(bufferDir string) *BufferWriter {
 	return &BufferWriter{bufferDir: bufferDir}
 }
 
+// WriteOptions configures optional fields for the buffer writer.
+type WriteOptions struct {
+	ChunkStrategy string   // "claims" for Vision extraction, empty for default chunking
+	PDFPages      []string // paths to pre-converted PNG page images (required when ChunkStrategy=claims)
+	DocType       string   // optional: contrat, facture, courrier — improves Vision extraction
+}
+
 // Write creates a .md file with YAML frontmatter in the buffer directory.
 // Uses atomic write (tmp → rename) to prevent HORAG from reading partial files.
 //
@@ -37,24 +44,47 @@ func NewBufferWriter(bufferDir string) *BufferWriter {
 //   - content_hash: dedup key ("sha256:<hash>")
 //   - source_type: "document" (distinguishes from veille sources)
 //   - title: original filename or extracted title
-func (bw *BufferWriter) Write(_ context.Context, dossierID, sha256, title, markdown string) error {
+//   - chunk_strategy: optional, "claims" triggers Claude Vision extraction in HORAG
+//   - source_path: optional, path to original file for Vision (required with claims)
+func (bw *BufferWriter) Write(_ context.Context, dossierID, sha256, title, markdown string, opts ...WriteOptions) error {
 	if bw == nil {
 		return nil
 	}
-	if markdown == "" {
+
+	var opt WriteOptions
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
+
+	// For claims strategy, markdown body can be empty — HORAG reads the source_path.
+	if markdown == "" && opt.ChunkStrategy != "claims" {
 		return nil
 	}
 
 	// Build frontmatter + body.
+	var extraFields string
+	if opt.ChunkStrategy != "" {
+		extraFields += fmt.Sprintf("chunk_strategy: %q\n", opt.ChunkStrategy)
+	}
+	if opt.DocType != "" {
+		extraFields += fmt.Sprintf("doc_type: %q\n", opt.DocType)
+	}
+	if len(opt.PDFPages) > 0 {
+		extraFields += "pdf_pages:\n"
+		for _, p := range opt.PDFPages {
+			extraFields += fmt.Sprintf("  - %q\n", p)
+		}
+	}
+
 	content := fmt.Sprintf(`---
 id: %q
 dossier_id: %q
 content_hash: "sha256:%s"
 source_type: "document"
 title: %q
----
+%s---
 %s
-`, sha256, dossierID, sha256, title, markdown)
+`, sha256, dossierID, sha256, title, extraFields, markdown)
 
 	// Atomic write: .md.tmp → os.Rename → .md
 	finalPath := filepath.Join(bw.bufferDir, sha256+".md")

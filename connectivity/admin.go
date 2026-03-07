@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY CRUD administration of the routes table for runtime route management by LLM or operator.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS Admin, NewAdmin, RouteRow
+
 package connectivity
 
 import (

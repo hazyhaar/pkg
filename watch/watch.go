@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Generic SQLite change watcher — polls version tokens, debounces, fires reload actions, and exposes Stats and WaitForVersion for synchronization.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS Watcher, ChangeDetector, Options, Stats, New, PragmaDataVersion, PragmaUserVersion, MaxColumnDetector
+
 // Package watch provides a generic "poll SQLite, detect change, debounce,
 // reload" loop. It standardises the reactive pattern used across the chassis
 // so that every consumer gets consistent intervals, debounce windows, and
@@ -113,6 +117,7 @@ func (w *Watcher) Version() int64 { return w.version.Load() }
 //
 // If action returns an error the version is NOT advanced — the action
 // will be retried on the next poll cycle.
+// CLAUDE:WARN Blocking — must run in goroutine. If action returns error, version NOT advanced (retries next cycle).
 func (w *Watcher) OnChange(ctx context.Context, action func() error) {
 	log := w.opts.Logger
 
@@ -182,6 +187,7 @@ func (w *Watcher) OnChange(ctx context.Context, action func() error) {
 
 // WaitForVersion blocks until the watcher has observed and successfully
 // processed (action returned nil) a version >= target, or ctx expires.
+// CLAUDE:WARN Takes versionMu; launches short-lived goroutine per wait. Blocks indefinitely if version never reaches target and ctx has no deadline.
 func (w *Watcher) WaitForVersion(ctx context.Context, target int64) error {
 	// Fast path.
 	if w.version.Load() >= target {
@@ -229,6 +235,7 @@ func (w *Watcher) fire(_ context.Context, log *slog.Logger, action func() error,
 	log.Info("watch: reload complete", "version", ver, "duration", elapsed)
 }
 
+// CLAUDE:WARN Calls versionCond.Broadcast() waking all WaitForVersion callers. Must NOT be called with versionMu held.
 func (w *Watcher) setVersion(v int64) {
 	w.version.Store(v)
 	w.versionCond.Broadcast()

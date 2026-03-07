@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY HTTP middleware extracting JWT from cookie or Bearer header into context, plus RequireAuth guard.
+// CLAUDE:DEPENDS kit
+// CLAUDE:EXPORTS Middleware, GetClaims, RequireAuth
+
 package auth
 
 import (
@@ -14,6 +18,7 @@ type claimsKey struct{}
 // the parsed HorosClaims are injected into the request context along with
 // kit.UserIDKey and kit.HandleKey for interoperability with the kit layer.
 // Invalid or missing tokens are silently ignored — use RequireAuth to enforce.
+// CLAUDE:WARN Silently ignores invalid/missing tokens (no 401) — use RequireAuth downstream to enforce auth.
 func Middleware(secret []byte) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

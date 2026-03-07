@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Context key definitions and getter/setter helpers for user ID, role, transport, trace ID, session ID, and remote addr.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS WithUserID, GetUserID, WithHandle, GetHandle, WithTransport, GetTransport, WithRequestID, GetRequestID, WithTraceID, GetTraceID, WithSessionID, GetSessionID, WithRemoteAddr, GetRemoteAddr, WithRole, GetRole
+
 package kit
 
 import "context"

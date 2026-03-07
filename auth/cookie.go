@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Manages JWT token cookies (set and clear) with cross-subdomain support.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS SetTokenCookie, ClearTokenCookie
+
 package auth
 
 import "net/http"

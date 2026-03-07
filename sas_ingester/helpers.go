@@ -1,3 +1,6 @@
+// CLAUDE:SUMMARY Thin wrapper around os.Open for testability of file operations.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS none
 package sas_ingester
 
 import "os"

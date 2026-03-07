@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Watches the source database for changes, produces filtered snapshots, and pushes them to FO subscribers over QUIC.
+// CLAUDE:DEPENDS watch
+// CLAUDE:EXPORTS Publisher, NewPublisher, NewPublisherWithRoutesDB
+
 package dbsync
 
 import (
@@ -65,6 +69,7 @@ func NewPublisherWithRoutesDB(db, routesDB *sql.DB, filter FilterSpec, savePath 
 
 // Start watches the source database for changes and pushes snapshots to FOs.
 // Blocks until ctx is cancelled.
+// CLAUDE:WARN Blocking — delegates to watch.OnChange. Always returns nil (watch errors logged, not returned).
 func (p *Publisher) Start(ctx context.Context) error {
 	w := watch.New(p.db, watch.Options{
 		Interval: p.opts.watchInterval,
@@ -90,6 +95,7 @@ func (p *Publisher) LastMeta() *SnapshotMeta {
 }
 
 // publish produces a snapshot and pushes it to all dbsync targets.
+// CLAUDE:WARN Launches one goroutine per target (parallel QUIC push). Individual push failures logged but not returned.
 func (p *Publisher) publish(ctx context.Context) error {
 	// Step 1: Produce filtered snapshot.
 	meta, err := ProduceSnapshot(p.db, p.savePath, p.filter)

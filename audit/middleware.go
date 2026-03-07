@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Kit endpoint middleware that measures duration, captures params/result/error, and logs via audit Logger.
+// CLAUDE:DEPENDS kit
+// CLAUDE:EXPORTS Middleware
+
 package audit
 
 import (

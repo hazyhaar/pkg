@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Concurrent-safe format registry mapping format IDs to names/MIME types, with SQLite persistence for observability.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS Registry, FormatInfo, NewRegistry, Schema
+
 package horos
 
 import (

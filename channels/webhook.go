@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Generic HTTP webhook connector implementing Channel with HMAC-SHA256 verification and SSRF-safe outbound callbacks.
+// CLAUDE:DEPENDS horosafe
+// CLAUDE:EXPORTS WebhookConfig, WebhookFactory
+
 package channels
 
 import (

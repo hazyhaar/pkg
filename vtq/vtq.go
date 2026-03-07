@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Visibility Timeout Queue backed by SQLite — atomic claim/ack/nack, batch processing with bounded concurrency, and configurable redelivery.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS Q, Job, Options, Handler, ErrNotHolder, New
+
 // Package vtq implements a Visibility Timeout Queue backed by SQLite.
 //
 // Rows in the queue are invisible to consumers for a configurable duration
@@ -173,6 +177,7 @@ func (q *Q) Nack(ctx context.Context, id string) error {
 // visibility timeout has already expired or another consumer re-claimed the
 // job. On success it updates job.VisibleAt so subsequent Extend calls use
 // the correct baseline.
+// CLAUDE:WARN Mutates job.VisibleAt on success — modifies caller's Job struct as side effect.
 func (q *Q) Extend(ctx context.Context, job *Job, extra time.Duration) error {
 	now := time.Now()
 	hideUntil := now.Add(extra)
@@ -220,6 +225,7 @@ type Handler func(ctx context.Context, job *Job) error
 
 // Run polls for visible jobs and calls handler for each one. It blocks until
 // ctx is cancelled.
+// CLAUDE:WARN Blocking — polls until ctx cancelled. Ack/Nack errors silently discarded.
 func (q *Q) Run(ctx context.Context, handler Handler) {
 	log := q.opts.Logger
 	log.Info("vtq: consumer started", "queue", q.opts.Queue, "visibility", q.opts.Visibility, "poll", q.opts.PollInterval)
@@ -238,6 +244,7 @@ func (q *Q) Run(ctx context.Context, handler Handler) {
 	}
 }
 
+// CLAUDE:WARN Drains ALL visible jobs in tight loop. Silently discards Ack/Nack errors. Jobs exceeding MaxAttempts silently deleted.
 func (q *Q) poll(ctx context.Context, handler Handler, log *slog.Logger) {
 	for {
 		job, err := q.Claim(ctx)
@@ -312,6 +319,7 @@ func (q *Q) BatchClaim(ctx context.Context, n int) ([]*Job, error) {
 // RunBatch polls in batches and processes jobs with bounded concurrency.
 // It blocks until ctx is cancelled, draining in-flight handlers before
 // returning.
+// CLAUDE:WARN Blocking; launches up to maxConcurrency goroutines. Ack/Nack use context.Background() for cleanup after cancellation.
 func (q *Q) RunBatch(ctx context.Context, batchSize, maxConcurrency int, handler Handler) {
 	log := q.opts.Logger
 	log.Info("vtq: batch consumer started",

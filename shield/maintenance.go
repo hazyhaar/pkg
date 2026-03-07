@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Maintenance mode middleware — serves 503 pages based on a SQLite single-row flag with periodic reload and path exclusions.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS MaintenanceMode, NewMaintenanceMode
+
 package shield
 
 import (
@@ -69,6 +73,7 @@ func (m *MaintenanceMode) SetPage(html []byte) {
 
 // StartReloader starts a background goroutine that reloads the maintenance
 // flag every 5 seconds. Stops when done is closed.
+// CLAUDE:WARN Launches goroutine — caller must close done channel to avoid leak.
 func (m *MaintenanceMode) StartReloader(done <-chan struct{}) {
 	tick := time.NewTicker(5 * time.Second)
 	go func() {

@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Serves embedded widget.js and widget.css assets via go:embed with 1-hour cache headers.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS none
+
 package feedback
 
 import (

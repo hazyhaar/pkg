@@ -1,3 +1,6 @@
+// CLAUDE:SUMMARY Webhook fan-out router with per-dossier and global routing, HMAC signing, JWT passthru, and exponential backoff retries.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS Router, NewRouter, OpaquePayload, PassthruPayload
 package sas_ingester
 
 import (

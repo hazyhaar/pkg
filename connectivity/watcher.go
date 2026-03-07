@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Blocking Watch loop that polls PRAGMA data_version and triggers Router.Reload on database changes.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS none
+
 package connectivity
 
 import (
@@ -16,6 +20,7 @@ import (
 // Watch blocks until ctx is cancelled. Run it in a goroutine:
 //
 //	go router.Watch(ctx, db, 200*time.Millisecond)
+// CLAUDE:WARN Blocking — must run in a goroutine. Calls Reload (takes mu.Lock) on data_version change. Silently ignores initial PRAGMA scan error.
 func (r *Router) Watch(ctx context.Context, db *sql.DB, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()

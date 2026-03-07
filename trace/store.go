@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Local SQLite trace persistence — async batched INSERT of SQL trace entries into sql_traces table.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS Schema, Store, NewStore
+
 package trace
 
 import (
@@ -35,6 +39,7 @@ type Store struct {
 
 // NewStore creates a trace store backed by the given database connection.
 // The db should use the raw "sqlite" driver to avoid tracing its own writes.
+// CLAUDE:WARN Launches goroutine; db MUST use raw "sqlite" driver — "sqlite-trace" causes infinite recursion.
 func NewStore(db *sql.DB) *Store {
 	s := &Store{
 		db:   db,
@@ -52,6 +57,7 @@ func (s *Store) Init() error {
 }
 
 // RecordAsync queues an entry for async persistence. Non-blocking; drops if buffer full.
+// CLAUDE:WARN Silently drops entry if buffer full (no error, no log) — by design to avoid backpressure.
 func (s *Store) RecordAsync(e *Entry) {
 	select {
 	case s.ch <- e:

@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Pluggable ID generation (UUIDv7, NanoID, prefixed, timestamped) with a composable Generator function type.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS Generator, NanoID, UUIDv7, Prefixed, Timestamped, Default, New, MustParse, Parse
+
 // Package idgen provides pluggable ID generation for the HOROS ecosystem.
 //
 // All constructors across pkg/ (audit, mcprt, mcpquic) accept a Generator,

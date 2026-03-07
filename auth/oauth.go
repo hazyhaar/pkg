@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY OAuth2 Google provider configuration and user profile fetching.
+// CLAUDE:DEPENDS horosafe
+// CLAUDE:EXPORTS OAuthConfig, OAuthUser, NewGoogleProvider, FetchGoogleUser
+
 package auth
 
 import (

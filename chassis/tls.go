@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY TLS configuration helpers: self-signed ECDSA P-256 cert for dev and production cert loading with dual ALPN.
+// CLAUDE:DEPENDS mcpquic
+// CLAUDE:EXPORTS GenerateSelfSignedCert, DevelopmentTLSConfig, ProductionTLSConfig
+
 package chassis
 
 import (

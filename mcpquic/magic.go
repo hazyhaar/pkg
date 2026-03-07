@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Magic bytes validation — reads and writes "MCP1" prefix on QUIC streams as defense-in-depth against ALPN confusion.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS ValidateMagicBytes, SendMagicBytes
+
 package mcpquic
 
 import (

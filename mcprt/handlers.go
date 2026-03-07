@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY SQL-backed tool handlers — SQLQueryHandler executes SELECT queries, SQLScriptHandler executes multi-statement transactions with template params.
+// CLAUDE:DEPENDS idgen
+// CLAUDE:EXPORTS SQLQueryHandler, SQLScriptHandler
+
 package mcprt
 
 import (

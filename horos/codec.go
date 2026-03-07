@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Typed service contracts with F-bounded Codec interface, Contract[Req,Resp] for compile-time safe inter-service calls.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS Codec, Encoder, Contract, NewContract
+
 // Package horos provides the HOROS type system: typed service contracts,
 // codec-agnostic serialization, structured errors, and a wire envelope format
 // for inter-service communication.

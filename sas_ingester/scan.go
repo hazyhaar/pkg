@@ -1,3 +1,6 @@
+// CLAUDE:SUMMARY Security scanning of file chunks: zip bomb heuristic, polyglot detection, macro presence, and ClamAV INSTREAM protocol.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS ScanResult, ScanChunks, ScanFile
 package sas_ingester
 
 import (
@@ -203,6 +206,7 @@ func checkMacro(header []byte, filePath string) string {
 // scanClamAV sends file content to clamd via the INSTREAM protocol.
 // This works across container boundaries (no shared filesystem needed).
 // Protocol: zINSTREAM\0 + [4-byte big-endian length + data]* + \0\0\0\0
+// CLAUDE:WARN Opens Unix socket to ClamAV — blocks up to 60s. Fails if clamd not running.
 func scanClamAV(filePath, socketPath string) (string, error) {
 	conn, err := net.DialTimeout("unix", socketPath, 10*time.Second)
 	if err != nil {

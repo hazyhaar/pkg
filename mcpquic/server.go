@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY MCP-over-QUIC server — Handler (per-connection, used by chassis) and Listener (standalone accept loop) serving MCP sessions over QUIC streams.
+// CLAUDE:DEPENDS idgen, kit
+// CLAUDE:EXPORTS Handler, HandlerOption, WithHandlerIDGenerator, NewHandler, Listener, NewListener
+
 package mcpquic
 
 import (
@@ -53,6 +57,7 @@ func NewHandler(mcpSrv *mcp.Server, logger *slog.Logger, opts ...HandlerOption) 
 }
 
 // ServeConn handles a single QUIC connection as an MCP session.
+// CLAUDE:WARN Validates magic bytes then delegates to MCP SDK session. If magic validation fails, closes connection silently.
 func (h *Handler) ServeConn(ctx context.Context, conn *quic.Conn) {
 	remote := conn.RemoteAddr().String()
 	h.logger.Info("MCP connection accepted", "remote", remote)

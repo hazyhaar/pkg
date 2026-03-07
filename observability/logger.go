@@ -1,3 +1,6 @@
+// CLAUDE:SUMMARY Business event logger and multi-table retention cleanup for the observability database.
+// CLAUDE:DEPENDS idgen
+// CLAUDE:EXPORTS EventLogger, NewEventLogger, EventLoggerOption, WithEventIDGenerator, BusinessEvent, RetentionConfig, Cleanup
 package observability
 
 import (
@@ -50,6 +53,7 @@ func NewEventLogger(db *sql.DB, opts ...EventLoggerOption) *EventLogger {
 
 // LogEvent records a business event. Non-blocking: errors are logged via slog
 // but do not propagate, so a failing observability store never blocks the app.
+// CLAUDE:WARN Silently swallows DB errors (logs only) — caller won't know if event was not persisted.
 func (l *EventLogger) LogEvent(ctx context.Context, event BusinessEvent) {
 	eventID := l.newID()
 	_, err := l.db.ExecContext(ctx, `

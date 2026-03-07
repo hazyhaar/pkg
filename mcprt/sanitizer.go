@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Tool metadata sanitizer — strips HTML, prompt injection patterns, control chars, and zero-width unicode from tool names and descriptions before LLM exposure.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS Sanitizer, SanitizerOption, DefaultSanitizer, WithMaxDescriptionLength, WithCustomFilter, WithSanitizer
+
 package mcprt
 
 import (

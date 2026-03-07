@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Core handler middlewares: chain composition, logging, timeout, and panic recovery.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS HandlerMiddleware, Chain, Logging, Timeout, Recovery, ErrPanic
+
 package connectivity
 
 import (

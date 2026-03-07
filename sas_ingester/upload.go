@@ -1,3 +1,6 @@
+// CLAUDE:SUMMARY Streaming file upload receiver with direct chunking via sas_chunker, SHA-256 dedup, and piece/chunk DB recording.
+// CLAUDE:DEPENDS horosafe, sas_chunker
+// CLAUDE:EXPORTS UploadResult, ReceiveFile
 package sas_ingester
 
 import (
@@ -25,6 +28,7 @@ type UploadResult struct {
 // ReceiveFile reads from r, streams directly to chunks via sas_chunker.SplitReader
 // (no intermediate temp file), checks dedup, and records the piece in the DB.
 // Manifest.json, Verify() and Assemble() all work out of the box.
+// CLAUDE:WARN Creates filesystem dirs/files; silently ignores cross-filesystem rename failure.
 func ReceiveFile(r io.Reader, dossierID string, cfg *Config, store *Store) (*UploadResult, error) {
 	// Path traversal guard: dossierID is used in file paths.
 	if err := horosafe.ValidateIdentifier(dossierID); err != nil {

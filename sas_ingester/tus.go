@@ -1,3 +1,6 @@
+// CLAUDE:SUMMARY TUS resumable upload handler: create, patch, complete with SHA-256 dedup and chunking via sas_chunker.
+// CLAUDE:DEPENDS horosafe, sas_chunker
+// CLAUDE:EXPORTS TusHandler, NewTusHandler, ParseUploadLength, ParseUploadOffset
 package sas_ingester
 
 import (

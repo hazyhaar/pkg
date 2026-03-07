@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Periodically pings the back-office /health endpoint and caches reachability status for fast circuit-breaking.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS BOHealthChecker, NewBOHealthChecker
+
 package dbsync
 
 import (

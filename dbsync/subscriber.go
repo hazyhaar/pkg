@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Listens for incoming QUIC snapshot pushes, verifies integrity (size + SHA-256), and performs atomic database swap.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS Subscriber, NewSubscriber
+
 package dbsync
 
 import (
@@ -64,6 +68,7 @@ func NewSubscriber(dbPath, listenAddr string, tlsCfg *tls.Config, opts ...Option
 }
 
 // Start listens for incoming snapshots over QUIC. Blocks until ctx is cancelled.
+// CLAUDE:WARN Blocking — listens for QUIC connections until ctx cancelled. Binds a network port.
 func (s *Subscriber) Start(ctx context.Context) error {
 	s.logger.Info("dbsync subscriber: starting", "listen", s.listenAddr, "db", s.dbPath)
 	return ListenSnapshots(ctx, s.listenAddr, s.tlsCfg, func(meta SnapshotMeta, reader io.Reader) error {
@@ -79,6 +84,7 @@ func (s *Subscriber) DB() *sql.DB {
 
 // OnSwap registers a callback invoked after a successful database swap.
 // Callbacks are called synchronously in registration order.
+// CLAUDE:WARN Takes mu.Lock. Callbacks execute synchronously inside handleSnapshot WHILE mu.Lock is held — must not block.
 func (s *Subscriber) OnSwap(fn func()) {
 	s.mu.Lock()
 	s.onSwap = append(s.onSwap, fn)
@@ -133,6 +139,7 @@ func (s *Subscriber) Status() map[string]any {
 }
 
 // handleSnapshot receives a snapshot, validates it, and swaps the local DB.
+// CLAUDE:WARN Takes mu.Lock; closes old DB, renames file (atomic swap), opens new DB. Fires onSwap callbacks under lock.
 func (s *Subscriber) handleSnapshot(meta SnapshotMeta, reader io.Reader) error {
 	s.logger.Info("dbsync subscriber: receiving snapshot",
 		"version", meta.Version, "size", meta.Size, "hash", meta.Hash[:16]+"...",

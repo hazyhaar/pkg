@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY HTTP handler for receiving trace batches from RemoteStore (FO) and writing them to local Store (BO).
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS IngestHandler
+
 package trace
 
 import (

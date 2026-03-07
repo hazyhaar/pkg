@@ -43,6 +43,7 @@ var (
 )
 
 // DefaultIntents returns the embedded intent list, loaded once.
+// CLAUDE:WARN Uses sync.Once; panics on first call if embedded intents.json is malformed.
 func DefaultIntents() []Intent {
 	defaultIntentsOnce.Do(func() {
 		var err error

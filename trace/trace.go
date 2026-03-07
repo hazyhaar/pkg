@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Package entry point — defines Entry type, Recorder interface, global store registry, and registers the "sqlite-trace" driver in init().
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS Entry, Recorder, SetStore
+
 // Package trace provides transparent SQL tracing for modernc.org/sqlite.
 //
 // It registers a "sqlite-trace" driver that wraps the standard "sqlite" driver,
@@ -53,6 +57,7 @@ var (
 // SetStore sets the global trace recorder for persistence.
 // Accepts a Store (local SQLite) or RemoteStore (HTTP to BO).
 // Pass nil to disable persistence (slog-only mode).
+// CLAUDE:WARN Takes global lock; mutates package-level Recorder affecting all traced SQL connections.
 func SetStore(s Recorder) {
 	storeMu.Lock()
 	globalStore = s
@@ -65,6 +70,7 @@ func getStore() Recorder {
 	return globalStore
 }
 
+// CLAUDE:WARN Registers "sqlite-trace" driver via init() — panics on duplicate registration.
 func init() {
 	sql.Register("sqlite-trace", &TracingDriver{
 		Driver: &sqlite.Driver{},

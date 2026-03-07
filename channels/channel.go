@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Core types and interfaces for bidirectional messaging channels (Message, Channel, ChannelFactory, InboundHandler).
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS Direction, Inbound, Outbound, Message, Attachment, ChannelStatus, Channel, ChannelFactory, InboundHandler
+
 // Package channels provides bidirectional messaging connectors for platforms
 // like WhatsApp, Telegram, Discord, and generic webhooks.
 //

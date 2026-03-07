@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Inspection methods on Dispatcher to list and inspect active channel status snapshots.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS ChannelInfo
+
 package channels
 
 import "iter"

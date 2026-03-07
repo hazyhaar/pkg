@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY MCP-over-QUIC client — dials a QUIC server, validates ALPN and magic bytes, wraps stream as MCP transport for tool calls.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS Client, NewClient
+
 package mcpquic
 
 import (

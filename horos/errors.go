@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Structured ServiceError type for cross-wire error propagation with __error sentinel, code-based Is matching, and common error codes.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS ServiceError, DetectError, ToServiceError, NewServiceError, ErrNotFound, ErrBadRequest, ErrInternal, ErrRateLimited, ErrForbidden, ErrConflict, ErrEncode, ErrDecode
+
 package horos
 
 import (

@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY JWT token generation and validation pinned to HS256 with secret length enforcement.
+// CLAUDE:DEPENDS horosafe
+// CLAUDE:EXPORTS GenerateToken, ValidateToken, ValidateTokenMapClaims
+
 package auth
 
 import (

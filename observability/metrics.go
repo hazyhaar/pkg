@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Buffered timeseries metrics manager that flushes Metric datapoints to SQLite in batches.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS MetricsManager, NewMetricsManager, Metric, MetricCPUUsagePercent, MetricMemoryUsedBytes, MetricMemoryAllocMB, MetricGoroutinesCount, MetricGCCount, MetricWorkflowDurationMs, MetricTaskProcessedCount
+
 // Package observability provides SQLite-native monitoring components that
 // replace Prometheus, Loki, Consul health checks and Elasticsearch audit.
 //
@@ -41,6 +45,7 @@ type MetricsManager struct {
 
 // NewMetricsManager creates a manager that flushes metrics in batches.
 // Recommended defaults: bufferSize=100, flushInterval=5s.
+// CLAUDE:WARN Launches goroutine — must call Close() to flush remaining metrics.
 func NewMetricsManager(db *sql.DB, bufferSize int, flushInterval time.Duration) *MetricsManager {
 	mm := &MetricsManager{
 		db:            db,
@@ -55,6 +60,7 @@ func NewMetricsManager(db *sql.DB, bufferSize int, flushInterval time.Duration) 
 }
 
 // Record queues a metric for async persistence. Non-blocking.
+// CLAUDE:WARN Takes mu.Lock; may trigger synchronous DB flush while holding lock if buffer full.
 func (mm *MetricsManager) Record(m *Metric) {
 	mm.mu.Lock()
 	defer mm.mu.Unlock()

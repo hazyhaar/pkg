@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Wire envelope format (2B format_id + 4B CRC-32C + payload) with Wrap/Unwrap and checksum verification.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS HeaderSize, FormatRaw, FormatJSON, FormatMsgp, Wrap, Unwrap, ErrChecksum, ErrUnsupportedFormat, IsChecksumError
+
 package horos
 
 import (

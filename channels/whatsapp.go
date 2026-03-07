@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY WhatsApp platform connector implementing Channel interface via whatsmeow multi-device pairing.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS WhatsAppConfig, WhatsAppFactory
+
 package channels
 
 import (

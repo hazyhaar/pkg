@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY SQLite schema definition for the channels table, database opener, and Init helper.
+// CLAUDE:DEPENDS dbopen
+// CLAUDE:EXPORTS Schema, OpenDB, Init
+
 package channels
 
 import (

@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Provides connectivity.TransportFactory adapters for reporting Publisher and Subscriber sync status.
+// CLAUDE:DEPENDS connectivity
+// CLAUDE:EXPORTS DBSyncFactory, SubscriberFactory
+
 package dbsync
 
 import (

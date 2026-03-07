@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY One-shot CLI to reprocess ready pieces through docpipe extraction and HORAG buffer writing.
+// CLAUDE:DEPENDS docpipe, sas_chunker, sas_ingester
+// CLAUDE:EXPORTS none
+
 // reprocess — One-shot script to reprocess existing ready pieces through
 // docpipe + BufferWriter. Run once after deploying the new sas_ingester
 // with MarkdownConverter + BufferWriter support.

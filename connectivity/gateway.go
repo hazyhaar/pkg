@@ -24,6 +24,7 @@ const maxGatewayRequestBody int64 = 16 << 20
 //
 // This is the server-side counterpart of HTTPFactory: one service mounts
 // the Gateway, another service calls it via HTTPFactory routes.
+// CLAUDE:WARN Dispatches ONLY to local handlers (never remote) to prevent routing loops. Takes mu.RLock per request.
 func (r *Router) Gateway() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodPost {

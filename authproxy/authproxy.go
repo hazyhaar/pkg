@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Proxies FO authentication requests to the BO internal API, translating JSON responses into cookies and redirects.
+// CLAUDE:DEPENDS auth
+// CLAUDE:EXPORTS AuthProxy, NewAuthProxy
+
 // Package authproxy provides HTTP handlers that proxy authentication requests
 // from a front-office (FO) to a back-office (BO) internal API. The BO performs
 // the actual credential validation, and the proxy translates JSON responses into

@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Max body size middleware — limits request body size for form-encoded POST requests.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS MaxFormBody
+
 package shield
 
 import "net/http"

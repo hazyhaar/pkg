@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Circuit breaker pattern implementation with closed/open/half-open states and configurable thresholds.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS CircuitBreaker, NewCircuitBreaker, BreakerState, BreakerOption, WithBreakerThreshold, WithBreakerResetTimeout, WithBreakerHalfOpenMax, WithBreakerClock, WithCircuitBreaker
+
 package connectivity
 
 import (
@@ -88,6 +92,7 @@ func (cb *CircuitBreaker) Allow() bool {
 }
 
 // RecordSuccess records a successful call.
+// CLAUDE:WARN Takes mu.Lock; may transition HalfOpen→Closed. Resets failure counter in Closed state.
 func (cb *CircuitBreaker) RecordSuccess() {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
@@ -105,6 +110,7 @@ func (cb *CircuitBreaker) RecordSuccess() {
 }
 
 // RecordFailure records a failed call.
+// CLAUDE:WARN Takes mu.Lock; may transition Closed→Open or HalfOpen→Open.
 func (cb *CircuitBreaker) RecordFailure() {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
@@ -123,6 +129,7 @@ func (cb *CircuitBreaker) RecordFailure() {
 }
 
 // Reset forces the breaker back to closed state.
+// CLAUDE:WARN Takes mu.Lock; forcibly resets to Closed, bypassing state machine.
 func (cb *CircuitBreaker) Reset() {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
@@ -133,6 +140,7 @@ func (cb *CircuitBreaker) Reset() {
 
 // maybeTransition checks if an open breaker should move to half-open.
 // Must be called with mu held.
+// CLAUDE:WARN Called under mu.Lock. Transitions Open→HalfOpen (timeout elapsed) or HalfOpen→Closed (successes reached).
 func (cb *CircuitBreaker) maybeTransition() {
 	if cb.state == BreakerOpen && cb.now().Sub(cb.lastFailure) >= cb.resetTimeout {
 		cb.state = BreakerHalfOpen

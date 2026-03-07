@@ -1,3 +1,6 @@
+// CLAUDE:SUMMARY Prompt injection scanning for text and chunk files, delegating to the injection package for normalize and intent matching.
+// CLAUDE:DEPENDS injection
+// CLAUDE:EXPORTS InjectionResult, ScanInjection, ScanChunksInjection, StripZeroWidthChars, HasHomoglyphMixing
 package sas_ingester
 
 import (

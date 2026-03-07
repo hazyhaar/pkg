@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Core Router dispatching service calls locally or remotely based on SQLite routes with hot-reload.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS Router, New, Handler, TransportFactory, Option, WithLogger
+
 // Package connectivity provides a smart service router that dispatches calls
 // either locally (in-memory function call, ~0.01ms) or remotely (QUIC/HTTP,
 // ~50ms) based on a SQLite routes table reloaded at runtime.
@@ -95,6 +99,7 @@ func New(opts ...Option) *Router {
 // This is the "Job as Library" side: the function lives in the same binary.
 // If the routes table says strategy="local" for this service, Call dispatches
 // here with zero network overhead.
+// CLAUDE:WARN Takes mu.Lock; mutates localHandlers map.
 func (r *Router) RegisterLocal(service string, h Handler) {
 	r.mu.Lock()
 	r.localHandlers[service] = h
@@ -104,6 +109,7 @@ func (r *Router) RegisterLocal(service string, h Handler) {
 // RegisterTransport registers a factory for a transport protocol.
 // Example protocols: "quic", "http", "grpc", "mcp".
 // The factory is called during Reload when a route uses this protocol.
+// CLAUDE:WARN Takes mu.Lock; mutates factories map. Must be called before Watch/Reload — strategies registered after Watch starts are invisible.
 func (r *Router) RegisterTransport(protocol string, f TransportFactory) {
 	r.mu.Lock()
 	r.factories[protocol] = f
@@ -117,6 +123,7 @@ func (r *Router) RegisterTransport(protocol string, f TransportFactory) {
 //  4. Error — service not routable.
 //
 // Callers never need to know whether the call is local or remote.
+// CLAUDE:WARN Strategy "noop" returns (nil, nil) silently — no error, no data. Intentional for feature flags.
 func (r *Router) Call(ctx context.Context, service string, payload []byte) ([]byte, error) {
 	r.mu.RLock()
 	entry, hasRemote := r.remoteEntries[service]
@@ -150,6 +157,7 @@ func (r *Router) Call(ctx context.Context, service string, payload []byte) ([]by
 // Routes with strategy "local" or "noop" do not create remote handlers.
 // Only routes whose (strategy, endpoint, config) changed are rebuilt,
 // preserving existing connections for unchanged routes.
+// CLAUDE:WARN Takes mu.Lock for entire rebuild. Silently skips routes with missing/failed factories (logs, no error). Closes replaced handlers.
 func (r *Router) Reload(ctx context.Context, db *sql.DB) error {
 	rows, err := db.QueryContext(ctx,
 		`SELECT service_name, strategy, COALESCE(endpoint, ''), COALESCE(config, '{}') FROM routes`)
@@ -243,6 +251,7 @@ func (r *Router) Reload(ctx context.Context, db *sql.DB) error {
 }
 
 // Close shuts down all remote handlers.
+// CLAUDE:WARN Takes mu.Lock; closes all remote handlers; always returns nil.
 func (r *Router) Close() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()

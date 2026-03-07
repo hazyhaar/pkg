@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY TransportFactory for HTTP POST dispatch with SSRF guard, per-route timeout, and content-type config.
+// CLAUDE:DEPENDS horosafe
+// CLAUDE:EXPORTS HTTPFactory, AllowInternal, HTTPOpt
+
 package connectivity
 
 import (

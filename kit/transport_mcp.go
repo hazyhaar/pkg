@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Bridges kit.Endpoint to MCP tool registration, decoding MCP arguments and encoding JSON responses.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS MCPDecodeResult, RegisterMCPTool
+
 package kit
 
 import (

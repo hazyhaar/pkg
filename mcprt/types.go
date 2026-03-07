@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Core types for the dynamic MCP runtime — DynamicTool, Registry struct, GoFunc, PolicyFunc, AuditFunc, ToolHandler interface, handler type constants.
+// CLAUDE:DEPENDS idgen, watch
+// CLAUDE:EXPORTS DynamicTool, ToolHandler, GoFunc, Registry, PolicyFunc, AuditFunc, ModeReadonly, ModeReadWrite, HandlerSQLQuery, HandlerSQLScript, HandlerGoFunction
+
 package mcprt
 
 import (

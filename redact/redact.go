@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Regex-based string sanitizer that strips tokens, paths, IPs, stack traces, and encoded secrets before LLM exposure.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS Redactor, New, Rule, Defaults, SQLitePaths, Custom, Merge, SanitizeError, ContainsSensitive, StripGoStackTraces, MustCompileRule
+
 // Package redact sanitizes error messages and strings before they are
 // returned to an LLM. It strips sensitive information such as Bearer tokens,
 // API keys, file paths, IP addresses, stack traces, and long base64 strings.

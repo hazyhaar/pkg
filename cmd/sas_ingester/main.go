@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY HTTP server for file ingestion with TUS resumable uploads, JWT auth, observability, and docpipe extraction.
+// CLAUDE:DEPENDS connectivity, docpipe, idgen, kit, observability, sas_ingester, trace
+// CLAUDE:EXPORTS none
+
 package main
 
 import (

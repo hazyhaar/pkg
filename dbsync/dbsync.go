@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Defines core types, constants, wire-format metadata, target providers, and options for BO-to-FO SQLite replication.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS ALPNProtocol, MagicBytes, MaxSnapshotSize, FilterSpec, PartialTable, SnapshotMeta, TargetProvider, Target, StaticTargetProvider, NewStaticTargetProvider, RoutesTargetProvider, NewRoutesTargetProvider, Option, WithWatchInterval, WithWatchDebounce, WithCompression, WithMaxAge, WithDriverName
+
 // Package dbsync provides database replication from a back-office (BO) to one
 // or more front-office (FO) instances. The BO produces filtered SQLite snapshots
 // and pushes them over QUIC. Each FO receives the snapshot, validates its

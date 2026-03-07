@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Produces filtered SQLite snapshots by VACUUM INTO, dropping unlisted tables, applying WHERE clauses, and truncating columns.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS ValidateFilterSpec, ProduceSnapshot
+
 package dbsync
 
 import (

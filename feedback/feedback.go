@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Self-contained feedback widget providing schema init, HTTP routing, comment storage, and ID generation.
+// CLAUDE:DEPENDS idgen
+// CLAUDE:EXPORTS UserIDFunc, Config, Comment, Widget, New
+
 // Package feedback provides a self-contained feedback widget for HOROS services.
 //
 // It exposes both a chi-compatible [Widget.Handler] and a standard

@@ -1,3 +1,6 @@
+// CLAUDE:SUMMARY Main pipeline orchestrator that runs the full ingestion flow: receive, scan, inject-check, markdown, buffer, route.
+// CLAUDE:DEPENDS idgen, observability
+// CLAUDE:EXPORTS Ingester, NewIngester, IngesterOption, WithAudit, WithMetrics, WithEvents, WithIDGenerator, WithMarkdownConverter, WithKeyResolver, WithShardCatalog, IngestResult, ShardCatalog
 package sas_ingester
 
 import (
@@ -5,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -121,6 +125,7 @@ func NewIngester(cfg *Config, opts ...IngesterOption) (*Ingester, error) {
 // RecoverStalePieces finds pieces stuck in intermediate states (received,
 // scanned) from a previous crash and marks them for re-processing.
 // Call this once at boot before accepting new uploads.
+// CLAUDE:WARN Must be called once at boot before accepting uploads — re-queuing during active processing causes duplicates.
 func (ing *Ingester) RecoverStalePieces() {
 	for _, state := range []string{"received", "scanned"} {
 		pieces, err := ing.Store.ListPiecesByState(state)
@@ -338,56 +343,84 @@ func (ing *Ingester) processPipeline(upload *UploadResult, dossierID, originalTo
 	ing.recordMetric(observability.MetricWorkflowDurationMs, float64(duration.Milliseconds()), "milliseconds")
 	ing.recordMetric(observability.MetricTaskProcessedCount, 1, "count")
 
-	// Step 5.5: convert to markdown (non-blocking on failure).
-	if finalState == "ready" && ing.MarkdownConverter != nil {
-		md, err := ing.convertToMarkdown(context.Background(), upload.SHA256, dossierID, mime)
-		if err != nil {
-			slog.Warn("markdown conversion failed", "component", "ingester",
-				"sha256", upload.SHA256, "error", err)
-		}
-		result.MarkdownText = md
+	// Step 5.5: assemble chunks once — caller owns lifecycle.
+	// B1: assembleChunks is separate from convertToMarkdown so that
+	// convertToPNGPages can also use the assembled file.
+	// B3: isClaimsCandidate → Vision claims unconditionally (no markdown condition).
+	if finalState == "ready" {
+		assembledPath, assembleErr := ing.assembleChunks(dossierID, upload.SHA256, mime)
+		if assembleErr != nil {
+			slog.Warn("assemble failed", "component", "ingester",
+				"sha256", upload.SHA256, "error", assembleErr)
+		} else {
+			defer os.Remove(assembledPath)
 
-		// Step 5.5b: re-scan extracted text for injection.
-		// Step 4 scans binary chunks (can miss injections hidden in DOCX XML, PDF streams).
-		// This scans the actual human-readable text after format extraction.
-		if md != "" {
-			textInj := ScanInjection(md)
-			if riskLevel(textInj.Risk) > riskLevel(injResult.Risk) {
-				injResult = textInj
-				result.Injection = injResult
-				if textInj.Risk == "high" {
-					finalState = "flagged"
-					if err := ing.Store.UpdatePieceState(upload.SHA256, dossierID, "flagged"); err != nil {
-						slog.Error("update piece state after text injection", "error", err)
+			var writeOpts WriteOptions
+
+			if isClaimsCandidate(mime) {
+				// B3: Vision for all PDF/image, unconditionally.
+				pdfPages, tmpDir, convErr := ing.convertToPNGPages(assembledPath, mime)
+				if convErr != nil {
+					slog.Warn("pdf→png failed", "component", "ingester",
+						"sha256", upload.SHA256, "error", convErr)
+				} else {
+					if tmpDir != "" {
+						defer os.RemoveAll(tmpDir) // B2: cleanup tmpDir
 					}
-					result.State = "flagged"
-					slog.Warn("injection detected in extracted text",
+					writeOpts = WriteOptions{
+						ChunkStrategy: "claims",
+						PDFPages:      pdfPages,
+					}
+					slog.Info("step 5.5 routing to claims",
 						"component", "ingester",
 						"sha256", upload.SHA256,
-						"risk", textInj.Risk,
-						"matches", textInj.Matches)
+						"pages", len(pdfPages))
+				}
+			} else if ing.MarkdownConverter != nil {
+				// Classic pipeline: markdown conversion.
+				md, mdErr := ing.convertToMarkdown(context.Background(), assembledPath, upload.SHA256, dossierID, mime)
+				if mdErr != nil {
+					slog.Warn("markdown conversion failed", "component", "ingester",
+						"sha256", upload.SHA256, "error", mdErr)
+				} else {
+					result.MarkdownText = md
+				}
+
+				// Step 5.5b: re-scan extracted text for injection.
+				if result.MarkdownText != "" {
+					textInj := ScanInjection(result.MarkdownText)
+					if riskLevel(textInj.Risk) > riskLevel(injResult.Risk) {
+						injResult = textInj
+						result.Injection = injResult
+						if textInj.Risk == "high" {
+							finalState = "flagged"
+							if err := ing.Store.UpdatePieceState(upload.SHA256, dossierID, "flagged"); err != nil {
+								slog.Error("update piece state after text injection", "error", err)
+							}
+							result.State = "flagged"
+							slog.Warn("injection detected in extracted text",
+								"component", "ingester",
+								"sha256", upload.SHA256,
+								"risk", textInj.Risk,
+								"matches", textInj.Matches)
+						}
+					}
 				}
 			}
-		}
-	}
 
-	// Step 5.5c: write markdown to HORAG buffer for vectorization.
-	// Conditioned on: state still ready AND markdown non-empty AND BufferWriter configured.
-	slog.Info("step 5.5c check",
-		"component", "ingester",
-		"sha256", upload.SHA256,
-		"final_state", finalState,
-		"markdown_len", len(result.MarkdownText),
-		"buffer_writer_nil", ing.BufferWriter == nil)
-	if finalState == "ready" && result.MarkdownText != "" && ing.BufferWriter != nil {
-		if err := ing.BufferWriter.Write(context.Background(), dossierID, upload.SHA256, upload.SHA256, result.MarkdownText); err != nil {
-			slog.Warn("buffer writer failed", "component", "ingester",
-				"sha256", upload.SHA256, "error", err)
-		} else {
-			slog.Info("step 5.5c wrote buffer file",
-				"component", "ingester",
-				"sha256", upload.SHA256,
-				"dossier_id", dossierID)
+			// Step 5.5c: write to HORAG buffer (claims or markdown).
+			if ing.BufferWriter != nil && (result.MarkdownText != "" || writeOpts.ChunkStrategy == "claims") {
+				if err := ing.BufferWriter.Write(context.Background(), dossierID, upload.SHA256, upload.SHA256, result.MarkdownText, writeOpts); err != nil {
+					slog.Warn("buffer writer failed", "component", "ingester",
+						"sha256", upload.SHA256, "error", err)
+				} else {
+					slog.Info("step 5.5c wrote buffer file",
+						"component", "ingester",
+						"sha256", upload.SHA256,
+						"dossier_id", dossierID,
+						"chunk_strategy", writeOpts.ChunkStrategy)
+				}
+			}
 		}
 	}
 

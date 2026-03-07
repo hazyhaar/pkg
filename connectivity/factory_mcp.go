@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY TransportFactory for MCP-over-QUIC tool dispatch with eager connection and per-route tool_name config.
+// CLAUDE:DEPENDS mcpquic
+// CLAUDE:EXPORTS MCPFactory
+
 package connectivity
 
 import (
@@ -28,6 +32,7 @@ type mcpConfig struct {
 // Register it with:
 //
 //	router.RegisterTransport("mcp", connectivity.MCPFactory())
+// CLAUDE:WARN Connects eagerly to QUIC endpoint during Reload (fail fast). Uses context.Background() — ignores caller's context.
 func MCPFactory() TransportFactory {
 	return func(endpoint string, config json.RawMessage) (Handler, func(), error) {
 		var cfg mcpConfig

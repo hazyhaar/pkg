@@ -1,3 +1,6 @@
+// CLAUDE:SUMMARY HS256 JWT parsing, signature validation, expiry check, and dossier ID extraction for upload authentication.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS JWTClaims, ParseJWT, ExtractDossierID
 package sas_ingester
 
 import (

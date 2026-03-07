@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Defines the unified HorosClaims JWT claims structure for all HOROS services.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS HorosClaims
+
 package auth
 
 import "github.com/golang-jwt/jwt/v5"

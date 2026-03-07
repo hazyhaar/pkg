@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY QUIC and TLS configuration — constants (ALPN, magic bytes, limits), production QUIC config, TLS helpers (server, self-signed, client, H3).
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS ALPNProtocolMCP, MagicBytesMCP, MaxMessageSize, ProductionQUICConfig, ServerTLSConfig, SelfSignedTLSConfig, ClientTLSConfig, H3TLSConfig
+
 package mcpquic
 
 import (

@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Observability middlewares: metrics recording via MetricsManager and structured slog call logging.
+// CLAUDE:DEPENDS observability
+// CLAUDE:EXPORTS WithObservability, WithCallLogging
+
 package connectivity
 
 import (

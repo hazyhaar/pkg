@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Group isolation for MCP tool sessions — prevents tools in incompatible groups from being called within the same session context.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS WithGroupSession, GetGroupSession, WithGroupIsolation
+
 package mcprt
 
 import (

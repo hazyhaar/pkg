@@ -1,3 +1,6 @@
+// CLAUDE:SUMMARY File chunking with SHA-256 verification, manifest JSON, streaming split, reassembly, and integrity verification.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS Split, SplitReader, Assemble, Verify, LoadManifest, Manifest, ChunkMeta, VerifyResult, ProgressFunc, DefaultChunkSize, FormatBytes
 package sas_chunker
 
 import (

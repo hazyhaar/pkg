@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY HTTP handlers for feedback submission (POST), JSON listing, and HTML rendering with pagination.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS none
+
 package feedback
 
 import (

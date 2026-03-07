@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Decoding helpers for obfuscated text: ROT13 rotation and multi-format escape sequences (hex, percent, HTML entities).
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS DecodeROT13, DecodeEscapes
+
 package injection
 
 import (

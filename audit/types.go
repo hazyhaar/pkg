@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Defines the Entry struct and Logger interface for the audit trail.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS Entry, Logger
+
 package audit
 
 import "context"

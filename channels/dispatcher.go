@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Central dispatcher that manages active channels, reconciles SQLite state via Reload, and routes inbound messages through InboundHandler.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS Dispatcher, DispatcherOption, NewDispatcher, WithLogger, WithMaxConcurrent
+
 package channels
 
 import (
@@ -85,6 +89,7 @@ func NewDispatcher(handler InboundHandler, opts ...DispatcherOption) *Dispatcher
 
 // RegisterPlatform registers a ChannelFactory for a platform name.
 // Must be called before Watch. Example: d.RegisterPlatform("whatsapp", WhatsAppFactory())
+// CLAUDE:WARN Takes mu.Lock; mutates factories map. Must be called before Watch.
 func (d *Dispatcher) RegisterPlatform(platform string, f ChannelFactory) {
 	d.mu.Lock()
 	d.factories[platform] = f
@@ -145,6 +150,7 @@ func (cr channelRow) fingerprint() string {
 // Channel listen contexts are parented to the Dispatcher's lifecycle context,
 // not the ctx passed here. This ensures that channels survive beyond a
 // short-lived request context (e.g. an admin HTTP handler with a timeout).
+// CLAUDE:WARN Takes mu.Lock for entire reconciliation. Launches goroutine per new channel. Calls closeEntry (WaitGroup wait) under lock.
 func (d *Dispatcher) Reload(ctx context.Context, db *sql.DB) error {
 	rows, err := db.QueryContext(ctx,
 		`SELECT name, platform, enabled, COALESCE(config, '{}'), COALESCE(auth_state, '{}') FROM channels`)
@@ -239,6 +245,7 @@ func (d *Dispatcher) Reload(ctx context.Context, db *sql.DB) error {
 
 // dispatch reads inbound messages from a channel and processes them through
 // the InboundHandler. Outbound responses are sent back through the same channel.
+// CLAUDE:WARN Long-lived goroutine (launched by Reload). Reads from ch.Listen until close/cancel. Acquires semaphore per message.
 func (d *Dispatcher) dispatch(ctx context.Context, name string, ch Channel, wg *sync.WaitGroup) {
 	defer wg.Done()
 	msgs := ch.Listen(ctx)
@@ -300,6 +307,7 @@ func (d *Dispatcher) closeEntry(name string, entry *channelEntry) {
 }
 
 // Close shuts down all active channels and cancels the lifecycle context.
+// CLAUDE:WARN Cancels lifecycle context; takes mu.Lock; waits for all dispatch goroutines. Always returns nil.
 func (d *Dispatcher) Close() error {
 	d.lifecycleCancel()
 	d.mu.Lock()

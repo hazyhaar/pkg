@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Security headers middleware — applies CSP, X-Frame-Options, nosniff, referrer policy, and permissions policy to every response.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS HeaderConfig, DefaultHeaders, SecurityHeaders
+
 package shield
 
 import "net/http"

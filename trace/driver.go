@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY SQL tracing driver wrapping modernc.org/sqlite — intercepts every Exec and Query at the database/sql/driver level with adaptive slog and async persistence.
+// CLAUDE:DEPENDS kit
+// CLAUDE:EXPORTS TracingDriver
+
 package trace
 
 import (

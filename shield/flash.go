@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Flash message middleware — reads/writes one-time notification cookies with type prefix parsing.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS Flash, SetFlash
+
 package shield
 
 import (

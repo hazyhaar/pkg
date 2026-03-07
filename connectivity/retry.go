@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Retry and timeout middlewares: exponential backoff with circuit-open awareness and per-call timeout.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS WithRetry, WithTimeout
+
 package connectivity
 
 import (

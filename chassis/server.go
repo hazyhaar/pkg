@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Unified server exposing HTTP/1.1+HTTP/2 on TCP and HTTP/3+MCP on QUIC via ALPN demux on a single port.
+// CLAUDE:DEPENDS mcpquic
+// CLAUDE:EXPORTS Server, Config, New
+
 // Package chassis provides a unified server exposing HTTP and MCP on the same port.
 //
 // Two listeners on the same port:

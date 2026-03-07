@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Bridge between dynamic tool registry and MCP server — registers all registry tools into mcp.Server with policy, audit, group isolation, and sanitizer hooks.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS Bridge, BridgeOption, WithPolicy, WithAudit
+
 package mcprt
 
 import (
@@ -39,6 +43,7 @@ func WithAudit(fn AuditFunc) BridgeOption {
 // with "type":"object" or the SDK may reject it.
 // Returning a non-nil error from the handler = JSON-RPC protocol error.
 // For tool errors, use result.SetError(err) and return (result, nil).
+// CLAUDE:WARN Mutates srv by registering tools. Snapshots tools via ListTools() — GoFuncs registered AFTER this call are invisible.
 func Bridge(srv *mcp.Server, reg *Registry, opts ...BridgeOption) {
 	var cfg bridgeConfig
 	for _, o := range opts {

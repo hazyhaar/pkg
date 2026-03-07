@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Per-IP per-endpoint rate limiter middleware backed by SQLite rules with in-memory buckets, periodic GC, and JSON/redirect responses.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS RateLimitConfig, RateLimiter, NewRateLimiter, ExtractIP
+
 package shield
 
 import (
@@ -64,6 +68,7 @@ func (rl *RateLimiter) SetDB(db *sql.DB) {
 
 // StartReloader starts background goroutines for rule reloading (every 60s)
 // and bucket GC (every 5min). Stops when done is closed.
+// CLAUDE:WARN Launches goroutine — caller must close done channel to avoid leak.
 func (rl *RateLimiter) StartReloader(done <-chan struct{}) {
 	reloadTick := time.NewTicker(60 * time.Second)
 	gcTick := time.NewTicker(5 * time.Minute)
@@ -83,6 +88,7 @@ func (rl *RateLimiter) StartReloader(done <-chan struct{}) {
 	}()
 }
 
+// CLAUDE:WARN Takes mu.Lock; silently keeps stale rules on DB error (logs warning only).
 func (rl *RateLimiter) reload() {
 	rows, err := rl.db.Query(`SELECT endpoint, max_requests, window_seconds, enabled FROM rate_limits`)
 	if err != nil {
@@ -110,6 +116,7 @@ func (rl *RateLimiter) reload() {
 	slog.Debug("ratelimit: rules reloaded", "count", len(rules))
 }
 
+// CLAUDE:WARN Runs in background goroutine (from StartReloader). Deletes expired buckets from sync.Map without per-bucket lock.
 func (rl *RateLimiter) gc() {
 	now := time.Now()
 	rl.buckets.Range(func(key, value any) bool {
@@ -121,6 +128,7 @@ func (rl *RateLimiter) gc() {
 	})
 }
 
+// CLAUDE:WARN Takes mu.RLock for rules; mutates bucket counters without per-bucket lock.
 func (rl *RateLimiter) allow(ip, endpoint string) bool {
 	rl.mu.RLock()
 	cfg, ok := rl.rules[endpoint]

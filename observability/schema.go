@@ -1,3 +1,6 @@
+// CLAUDE:SUMMARY DDL schema for all observability tables and Init() to apply it to a database.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS Schema, Init
 package observability
 
 import "database/sql"

@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Watch loop that polls PRAGMA data_version to detect SQLite changes and triggers Dispatcher.Reload.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS none
+
 package channels
 
 import (
@@ -18,6 +22,7 @@ import (
 // Watch blocks until ctx is cancelled. Run it in a goroutine:
 //
 //	go dispatcher.Watch(ctx, db, 200*time.Millisecond)
+// CLAUDE:WARN Blocking — must run in goroutine. Calls Reload (takes mu.Lock, may launch goroutines) on data_version change.
 func (d *Dispatcher) Watch(ctx context.Context, db *sql.DB, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()

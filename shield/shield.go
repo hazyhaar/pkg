@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Package entry point — context keys, FlashMessage type, and DefaultFOStack/DefaultBOStack middleware composition.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS FlashKey, LoggerKey, FlashMessage, GetFlash, DefaultFOStack, DefaultBOStack
+
 // Package shield provides reusable HTTP security middleware for HOROS services.
 // It consolidates security headers, rate limiting, body limits, request tracing,
 // flash messages, and HEAD method handling into a single importable package.
@@ -53,6 +57,7 @@ func GetFlash(ctx context.Context) *FlashMessage {
 // Middleware is ordered: Maintenance → HeadToGet → SecurityHeaders → MaxFormBody → TraceID → RateLimiter → Flash.
 // The returned MaintenanceMode handle allows callers to set a custom page
 // and call StartReloader. Health checks (/healthz) bypass maintenance.
+// CLAUDE:WARN The RateLimiter is not returned — its rules never reload. Caller must call mm.StartReloader(done).
 func DefaultFOStack(db *sql.DB) ([]func(http.Handler) http.Handler, *MaintenanceMode) {
 	rl := NewRateLimiter(db)
 	mm := NewMaintenanceMode(db, "/healthz", "/static/")

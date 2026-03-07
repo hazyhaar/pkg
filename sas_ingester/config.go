@@ -1,3 +1,6 @@
+// CLAUDE:SUMMARY YAML configuration loading and validation for the sas_ingester pipeline.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS Config, ClamAVConfig, WebhookTarget, DefaultConfig, LoadConfig
 package sas_ingester
 
 import (

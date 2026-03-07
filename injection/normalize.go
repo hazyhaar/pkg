@@ -22,6 +22,7 @@ var leetJSON []byte
 var confusableMap map[rune]rune
 var leetMap map[rune]rune
 
+// CLAUDE:WARN Mutates package globals at import time; panics if embedded JSON is malformed.
 func init() {
 	confusableMap = loadRuneMap(confusablesJSON)
 	leetMap = loadRuneMap(leetJSON)

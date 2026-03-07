@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY SQLite-backed idempotency guard storing SHA-256 keyed results to prevent duplicate execution.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS Schema, Guard, New
+
 // Package idempotent provides a SQLite-backed idempotency guard.
 // It stores a SHA-256 hash of the caller-provided key and the result of the
 // first execution. Subsequent calls with the same key return the cached result

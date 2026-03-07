@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Transport-agnostic circuit breaker with closed/open/half-open states and optional SQLite persistence.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS State, Closed, Open, HalfOpen, ErrOpen, Breaker, Option, Store, New, WithThreshold, WithResetTimeout, WithHalfOpenMax, WithSQLite
+
 // Package circuitbreaker provides a transport-agnostic circuit breaker state
 // machine. It can be used with any call pattern: HTTP, MCP, QUIC, or internal
 // function calls.

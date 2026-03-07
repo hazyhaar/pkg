@@ -1,3 +1,6 @@
+// CLAUDE:SUMMARY Async audit trail logger that persists operation-level AuditEntry rows to SQLite in batches.
+// CLAUDE:DEPENDS idgen
+// CLAUDE:EXPORTS AuditLogger, AuditEntry, AuditFilter, AuditOption, NewAuditLogger, WithAuditIDGenerator
 package observability
 
 import (
@@ -64,6 +67,7 @@ func WithAuditIDGenerator(gen idgen.Generator) AuditOption {
 }
 
 // NewAuditLogger creates an async audit logger. Recommended bufferSize: 1000.
+// CLAUDE:WARN Launches goroutine — must call Close() to drain. LogAsync after Close panics (closed channel).
 func NewAuditLogger(db *sql.DB, bufferSize int, opts ...AuditOption) *AuditLogger {
 	a := &AuditLogger{
 		db:    db,
@@ -87,6 +91,7 @@ func (a *AuditLogger) Log(ctx context.Context, entry *AuditEntry) error {
 
 // LogAsync queues an entry for async persistence.
 // Falls back to synchronous insert if the buffer is full.
+// CLAUDE:WARN Falls back to synchronous DB insert when buffer full — may block caller.
 func (a *AuditLogger) LogAsync(entry *AuditEntry) {
 	a.fillDefaults(entry)
 	select {

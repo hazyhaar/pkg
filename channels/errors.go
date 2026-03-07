@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Sentinel error types for channel operations (not found, no factory, disabled, send failed).
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS ErrChannelNotFound, ErrNoPlatformFactory, ErrChannelDisabled, ErrSendFailed
+
 package channels
 
 import "fmt"

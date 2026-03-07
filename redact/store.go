@@ -1,3 +1,6 @@
+// CLAUDE:SUMMARY SQLite-backed runtime-updatable redaction engine with blacklist and whitelist pattern management.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS Store, NewStore, StoreOption, WithStaticRules, StoreSchema, PatternEntry, WhitelistEntry
 package redact
 
 import (

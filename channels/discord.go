@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Discord platform connector implementing Channel interface via discordgo gateway WebSocket.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS DiscordConfig, DiscordFactory
+
 package channels
 
 import (

@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY HEAD-to-GET conversion middleware — rewrites HEAD requests to GET so route handlers respond with 200 instead of 405.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS HeadToGet
+
 package shield
 
 import "net/http"

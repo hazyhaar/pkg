@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY HandlerMiddleware that falls back to a local handler when the remote handler fails.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS WithFallback
+
 package connectivity
 
 import (

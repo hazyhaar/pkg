@@ -1,3 +1,6 @@
+// CLAUDE:SUMMARY SQLite state machine for the ingestion pipeline: dossiers, pieces, chunks, routes, TUS uploads, and markdown storage.
+// CLAUDE:DEPENDS trace
+// CLAUDE:EXPORTS Store, OpenStore, Dossier, DossierRoute, Piece, RoutePending, TusUpload, PieceMarkdown
 package sas_ingester
 
 import (

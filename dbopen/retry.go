@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Provides automatic retry with backoff for SQLite SQLITE_BUSY errors on transactions and statements.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS IsBusy, RunTx, Exec
+
 package dbopen
 
 import (

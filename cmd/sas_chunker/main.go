@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY CLI for splitting, reassembling, and verifying large files via the sas_chunker library.
+// CLAUDE:DEPENDS sas_chunker
+// CLAUDE:EXPORTS none
+
 package main
 
 import (

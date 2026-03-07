@@ -1,3 +1,6 @@
+// CLAUDE:SUMMARY Periodic worker liveness heartbeat writer with runtime metrics and staleness detection.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS HeartbeatWriter, NewHeartbeatWriter, HeartbeatStatus, LatestHeartbeat, CleanupHeartbeats, RuntimeMetrics, CollectRuntimeMetrics
 package observability
 
 import (
@@ -61,6 +64,7 @@ func NewHeartbeatWriter(db *sql.DB, workerName string, interval time.Duration) *
 
 // Start launches the heartbeat goroutine. It writes one heartbeat immediately,
 // then repeats at the configured interval until Stop or context cancellation.
+// CLAUDE:WARN Launches goroutine — must call Stop() to wait for completion.
 func (hw *HeartbeatWriter) Start(ctx context.Context) {
 	go hw.loop(ctx)
 }

@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Typed error types for connectivity failures: service not found, factory errors, timeouts, circuit open.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS ErrServiceNotFound, ErrNoFactory, ErrFactoryFailed, ErrCallTimeout, ErrCircuitOpen
+
 package connectivity
 
 import "fmt"

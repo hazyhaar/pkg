@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Deprecated FO-to-BO auth proxy forwarding login, register, forgot-password, and reset-password over HTTP.
+// CLAUDE:DEPENDS auth
+// CLAUDE:EXPORTS AuthProxy, NewAuthProxy
+
 package dbsync
 
 import (

@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY SQLite schema for the routes table and helper functions to open and initialize the routes database.
+// CLAUDE:DEPENDS dbopen
+// CLAUDE:EXPORTS Schema, OpenDB, Init
+
 package connectivity
 
 import (

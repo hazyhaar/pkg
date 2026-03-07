@@ -1,3 +1,6 @@
+// CLAUDE:SUMMARY File metadata extraction from chunk headers and trailers: MIME detection, entropy, magic bytes, PDF/ZIP trailer analysis.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS FileMetadata, TrailerInfo, ExtractMetadata, ExtractFullMetadata, MetadataJSON
 package sas_ingester
 
 import (

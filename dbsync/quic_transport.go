@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Implements QUIC transport layer for pushing and receiving SQLite snapshots with TLS 1.3, mutual auth, and gzip compression.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS SyncTLSConfig, SyncClientTLSConfig, SyncClientTLSConfigWithCA, SyncTLSConfigMutual, PushSnapshot, ListenSnapshots
+
 package dbsync
 
 import (
@@ -122,6 +126,7 @@ func SyncTLSConfigMutual(certFile, keyFile, caCertFile string) (*tls.Config, err
 //  2. Meta length (4 bytes big-endian uint32)
 //  3. Meta JSON (variable)
 //  4. Snapshot bytes (gzip-compressed if meta.Compressed, raw otherwise)
+// CLAUDE:WARN Network + filesystem I/O. Sleeps 200ms after stream.Close() — required for QUIC FIN delivery.
 func PushSnapshot(ctx context.Context, endpoint string, tlsCfg *tls.Config, meta SnapshotMeta, snapshotPath string) error {
 	conn, err := quic.DialAddr(ctx, endpoint, tlsCfg, quicConfig())
 	if err != nil {
@@ -202,6 +207,7 @@ func PushSnapshot(ctx context.Context, endpoint string, tlsCfg *tls.Config, meta
 // For each connection it reads the wire format and calls handler with the
 // parsed metadata and a reader for the raw database bytes.
 // Blocks until ctx is cancelled.
+// CLAUDE:WARN Blocking QUIC accept loop. Launches one goroutine per connection. Binds a network port.
 func ListenSnapshots(ctx context.Context, addr string, tlsCfg *tls.Config, handler func(SnapshotMeta, io.Reader) error) error {
 	listener, err := quic.ListenAddr(addr, tlsCfg, quicConfig())
 	if err != nil {

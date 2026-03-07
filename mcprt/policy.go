@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Database-backed RBAC policy — evaluates per-tool allow/deny rules from mcp_tool_policy table against caller role from context.
+// CLAUDE:DEPENDS kit
+// CLAUDE:EXPORTS DBPolicy, NewDBPolicy
+
 package mcprt
 
 import (

@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Telegram platform connector implementing Channel interface via bot API long-polling or MTProto.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS TelegramConfig, TelegramFactory
+
 package channels
 
 import (

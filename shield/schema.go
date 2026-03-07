@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY SQLite schema definition and initialization for shield tables (rate_limits, maintenance).
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS Schema, Init
+
 package shield
 
 import "database/sql"

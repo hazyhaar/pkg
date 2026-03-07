@@ -1,3 +1,7 @@
+// CLAUDE:SUMMARY Introspection of router state: list all services and inspect individual service routing info.
+// CLAUDE:DEPENDS
+// CLAUDE:EXPORTS ServiceInfo
+
 package connectivity
 
 import "iter"
