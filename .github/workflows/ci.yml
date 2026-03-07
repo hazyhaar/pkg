@@ -19,10 +19,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           path: hazyhaar_pkg
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           repository: hazyhaar/pdfast
           path: pdfast
@@ -41,10 +41,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           path: hazyhaar_pkg
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           repository: hazyhaar/pdfast
           path: pdfast
