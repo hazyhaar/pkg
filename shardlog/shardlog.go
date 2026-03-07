@@ -100,6 +100,6 @@ func Sync() {
 	mu.RUnlock()
 
 	if f != nil {
-		f.Sync()
+		_ = f.Sync()
 	}
 }
