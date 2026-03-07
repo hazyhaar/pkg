@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"os"
 	"time"
 
@@ -152,8 +153,12 @@ func PushSnapshot(ctx context.Context, endpoint string, tlsCfg *tls.Config, meta
 		return fmt.Errorf("dbsync push: marshal meta: %w", err)
 	}
 
+	if len(metaJSON) > math.MaxUint32 {
+		_ = conn.CloseWithError(1, "meta too large")
+		return fmt.Errorf("dbsync push: meta JSON too large: %d bytes", len(metaJSON))
+	}
 	var lenBuf [4]byte
-	binary.BigEndian.PutUint32(lenBuf[:], uint32(len(metaJSON)))
+	binary.BigEndian.PutUint32(lenBuf[:], uint32(len(metaJSON))) //nolint:gosec // bounds checked above
 	if _, err = stream.Write(lenBuf[:]); err != nil {
 		_ = conn.CloseWithError(1, "write failed")
 		return fmt.Errorf("dbsync push: meta len: %w", err)

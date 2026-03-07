@@ -56,7 +56,11 @@ func WithRetry(maxRetries int, baseBackoff time.Duration, logger *slog.Logger) H
 				}
 
 				if attempt < maxRetries {
-					wait := baseBackoff * (1 << uint(attempt))
+					shift := attempt
+					if shift > 30 {
+						shift = 30
+					}
+					wait := baseBackoff * (1 << uint(shift))
 					if logger != nil {
 						logger.WarnContext(ctx, "retrying call",
 							"attempt", attempt+1,
