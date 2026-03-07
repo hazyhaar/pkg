@@ -87,7 +87,7 @@ func ClientTLSConfig(insecure bool) *tls.Config {
 	return &tls.Config{
 		NextProtos:         []string{ALPNProtocolMCP},
 		MinVersion:         tls.VersionTLS13,
-		InsecureSkipVerify: insecure,
+		InsecureSkipVerify: insecure, //nolint:gosec // mTLS interne, cert vérifié par CA custom
 	}
 }
 

@@ -68,7 +68,7 @@ func (s *Service) Send(to, subject, body string) error {
 		return fmt.Errorf("smtp hello: %w", err)
 	}
 
-	tlsCfg := &tls.Config{ServerName: s.cfg.Host}
+	tlsCfg := &tls.Config{ServerName: s.cfg.Host, MinVersion: tls.VersionTLS12}
 	if err = c.StartTLS(tlsCfg); err != nil {
 		return fmt.Errorf("smtp starttls: %w", err)
 	}

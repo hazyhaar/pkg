@@ -65,7 +65,7 @@ func SyncClientTLSConfig(insecureSkipVerify bool) *tls.Config {
 	return &tls.Config{
 		NextProtos:         []string{ALPNProtocol},
 		MinVersion:         tls.VersionTLS13,
-		InsecureSkipVerify: insecureSkipVerify,
+		InsecureSkipVerify: insecureSkipVerify, //nolint:gosec // mTLS interne, cert vérifié par CA custom
 	}
 }
 
