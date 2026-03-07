@@ -1,3 +1,5 @@
+version: "2"
+
 linters-settings:
   govet:
     shadow:
@@ -9,3 +11,10 @@ linters:
     # This is a deliberate naming choice, not a linter violation.
     - errname
     # exportloopref removed: deprecated since Go 1.22 (loopvar)
+
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - gosec
+      text: "G306"
