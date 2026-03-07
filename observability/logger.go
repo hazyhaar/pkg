@@ -125,7 +125,7 @@ func Cleanup(ctx context.Context, db *sql.DB, cfg RetentionConfig) error {
 			return fmt.Errorf("cleanup: invalid table/column %s/%s", t.table, t.column)
 		}
 		cutoff := now - int64(t.days*86400)
-		q := fmt.Sprintf("DELETE FROM %s WHERE %s < ?", t.table, t.column)
+		q := fmt.Sprintf("DELETE FROM %s WHERE %s < ?", t.table, t.column) //nolint:gosec // table name from internal config, not user input
 		if _, err := db.ExecContext(ctx, q, cutoff); err != nil {
 			return fmt.Errorf("cleanup %s: %w", t.table, err)
 		}
