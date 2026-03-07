@@ -5,7 +5,8 @@ go 1.25.0
 require (
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
-	github.com/modelcontextprotocol/go-sdk v1.3.1
+	github.com/hazyhaar/pdfast v0.1.0
+	github.com/modelcontextprotocol/go-sdk v1.4.0
 	github.com/quic-go/quic-go v0.59.0
 	go.uber.org/goleak v1.3.0
 	golang.org/x/net v0.51.0
@@ -13,7 +14,6 @@ require (
 	golang.org/x/text v0.34.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.46.1
-	github.com/hazyhaar/pdfast v0.1.0
 )
 
 require (
