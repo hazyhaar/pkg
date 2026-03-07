@@ -65,6 +65,7 @@ func main() {
 		slog.Error("query pieces", "error", err)
 		os.Exit(1)
 	}
+	defer rows.Close()
 
 	type piece struct {
 		sha256    string
@@ -79,6 +80,10 @@ func main() {
 			continue
 		}
 		pieces = append(pieces, p)
+	}
+	if err := rows.Err(); err != nil {
+		slog.Error("rows iteration", "error", err)
+		os.Exit(1)
 	}
 	rows.Close()
 

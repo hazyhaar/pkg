@@ -181,6 +181,9 @@ func (r *Registry) LoadTools(ctx context.Context) error {
 		}
 		newTools[t.Name] = &t
 	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate registry: %w", err)
+	}
 
 	r.tools = newTools
 	slog.Info("dynamic tools loaded", "count", len(newTools))

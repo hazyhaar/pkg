@@ -81,6 +81,9 @@ func (h *SQLQueryHandler) Execute(ctx context.Context, tool *DynamicTool, params
 		}
 		results = append(results, row)
 	}
+	if err := rows.Err(); err != nil {
+		return "", fmt.Errorf("iterate rows: %w", err)
+	}
 
 	var output any
 	if resultFormat == "object" && len(results) > 0 {
