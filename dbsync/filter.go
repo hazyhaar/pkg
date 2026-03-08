@@ -103,7 +103,7 @@ func ProduceSnapshot(srcDB *sql.DB, dstPath string, spec FilterSpec) (*SnapshotM
 
 	// Step 4: Apply WHERE clauses on FilteredTables.
 	for table, where := range spec.FilteredTables {
-		q := fmt.Sprintf("DELETE FROM %s WHERE NOT (%s)", quoteIdent(table), where)
+		q := fmt.Sprintf("DELETE FROM %s WHERE NOT (%s)", quoteIdent(table), where) //nolint:gosec // table name from internal config, not user input
 		if _, err = copyDB.Exec(q); err != nil {
 			return nil, fmt.Errorf("dbsync: filter %s: %w", table, err)
 		}
@@ -193,7 +193,7 @@ func dropUnlisted(db *sql.DB, allowed map[string]bool) error {
 func truncateColumns(db *sql.DB, table string, pt PartialTable) error {
 	// First, apply WHERE filter if present.
 	if pt.Where != "" {
-		q := fmt.Sprintf("DELETE FROM %s WHERE NOT (%s)", quoteIdent(table), pt.Where)
+		q := fmt.Sprintf("DELETE FROM %s WHERE NOT (%s)", quoteIdent(table), pt.Where) //nolint:gosec // table name from internal config, not user input
 		if _, err := db.Exec(q); err != nil {
 			return fmt.Errorf("where: %w", err)
 		}
@@ -224,7 +224,7 @@ func truncateColumns(db *sql.DB, table string, pt PartialTable) error {
 		}
 	}
 	if len(sets) > 0 {
-		q := fmt.Sprintf("UPDATE %s SET %s", quoteIdent(table), strings.Join(sets, ", "))
+		q := fmt.Sprintf("UPDATE %s SET %s", quoteIdent(table), strings.Join(sets, ", ")) //nolint:gosec // table name from internal config, not user input
 		if _, err := db.Exec(q); err != nil {
 			return fmt.Errorf("nullify: %w", err)
 		}

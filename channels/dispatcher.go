@@ -40,7 +40,7 @@ type Dispatcher struct {
 	// lifecycleCtx is a long-lived context that parents all channel listen
 	// contexts. It is independent of any request context passed to Reload,
 	// so that channels survive beyond a single Reload call.
-	lifecycleCtx    context.Context
+	lifecycleCtx    context.Context    //nolint:containedctx // intentional: lifecycle context outlives any single method call
 	lifecycleCancel context.CancelFunc
 
 	// sem is a semaphore channel used when maxConcurrent > 0 to limit

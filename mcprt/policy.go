@@ -63,6 +63,9 @@ func (p *DBPolicy) Evaluate(ctx context.Context, toolName string) error {
 			}
 		}
 	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate policy rows: %w", err)
+	}
 
 	// If allow rules exist but none match this role, deny.
 	if hasAllow && !matchesAllow {

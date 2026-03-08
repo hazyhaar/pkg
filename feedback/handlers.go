@@ -171,6 +171,9 @@ func (w *Widget) listComments(limit, offset int) ([]Comment, error) {
 		}
 		comments = append(comments, c)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate comments: %w", err)
+	}
 	if comments == nil {
 		comments = []Comment{}
 	}

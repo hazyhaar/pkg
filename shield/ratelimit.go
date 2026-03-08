@@ -108,6 +108,10 @@ func (rl *RateLimiter) reload() {
 		cfg.Enabled = enabled == 1
 		rules[endpoint] = cfg
 	}
+	if err := rows.Err(); err != nil {
+		slog.Warn("ratelimit: rows iteration error", "error", err)
+		return
+	}
 
 	rl.mu.Lock()
 	rl.rules = rules

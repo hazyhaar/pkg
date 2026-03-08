@@ -397,11 +397,16 @@ func TestAudit_ServiceNameWithQuote(t *testing.T) {
 	defer rows.Close()
 	if rows.Next() {
 		var raw string
-		_ = rows.Scan(&raw)
+		if err := rows.Scan(&raw); err != nil {
+			t.Fatal(err)
+		}
 		var parsed []string
 		if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
 			t.Errorf("stored JSON is invalid: %q — json.Unmarshal error: %v", raw, err)
 		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
 	}
 }
 

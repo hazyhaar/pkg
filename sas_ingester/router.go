@@ -232,7 +232,11 @@ func (rt *Router) resolveSecret(dossierID, targetURL string) string {
 
 func (rt *Router) recordFailure(route *RoutePending, errMsg string) {
 	attempts := route.Attempts + 1
-	backoff := time.Duration(1<<uint(attempts)) * time.Second
+	shift := attempts
+	if shift > 30 {
+		shift = 30
+	}
+	backoff := time.Duration(1<<uint(shift)) * time.Second
 	if backoff > 5*time.Minute {
 		backoff = 5 * time.Minute
 	}
