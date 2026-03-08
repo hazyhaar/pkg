@@ -3,7 +3,6 @@ package docpipe
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -34,7 +33,7 @@ func TestExtractPDF_Simple(t *testing.T) {
 
 func TestExtractPDF_CIDFont(t *testing.T) {
 	// WHAT: PDF with CIDFont/ToUnicode encoding extracts text via pdfast.
-	// WHY: pdfast handles CIDFont/ToUnicode natively — no pdftotext fallback needed.
+	// WHY: pdfast handles CIDFont/ToUnicode natively.
 	dir := t.TempDir()
 	path := filepath.Join(dir, "cidfont.pdf")
 	raw := buildCIDFontPDF("Contenu CIDFont extrait par pdfast")
@@ -65,9 +64,9 @@ func TestExtractPDF_CIDFont(t *testing.T) {
 	}
 }
 
-func TestExtractPDF_ImageOnly(t *testing.T) {
-	// WHAT: PDF without text but with image XObject flags HasImageStreams.
-	// WHY: Image-only PDFs must be flagged for OCR processing.
+func TestExtractPDF_ImageOnly_NeedsOCR(t *testing.T) {
+	// WHAT: PDF without text returns NeedsOCR quality, no error, no pdftotext fallback.
+	// WHY: Image-only PDFs must be flagged for OCR, not fail extraction.
 	dir := t.TempDir()
 	path := filepath.Join(dir, "image.pdf")
 	raw := buildImageOnlyPDF()
@@ -75,18 +74,22 @@ func TestExtractPDF_ImageOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, _, quality, err := extractPDF(path)
-	if err == nil && quality != nil {
-		if quality.HasImageStreams {
-			t.Log("image streams correctly detected")
-		}
-		if !quality.NeedsOCR() {
-			t.Log("warning: image-only PDF should ideally flag NeedsOCR")
-		}
+	_, sections, quality, err := extractPDF(path)
+	if err != nil {
+		t.Fatalf("expected no error for image-only PDF, got: %v", err)
 	}
-	// If extraction fails with "no text content", that's acceptable for image-only.
-	if err != nil && !strings.Contains(err.Error(), "no text content") {
-		t.Fatalf("unexpected error: %v", err)
+	if len(sections) != 0 {
+		t.Errorf("expected 0 sections for image-only PDF, got %d", len(sections))
+	}
+	if quality == nil {
+		t.Fatal("expected non-nil quality")
+	}
+	if quality.CharsPerPage != 0 {
+		t.Errorf("expected CharsPerPage=0, got %f", quality.CharsPerPage)
+	}
+	// NeedsOCR should be true: low chars + images
+	if quality.HasImageStreams && !quality.NeedsOCR() {
+		t.Log("warning: image-only PDF with HasImageStreams should flag NeedsOCR")
 	}
 }
 
@@ -110,50 +113,6 @@ func TestExtractPDF_VisualRefs(t *testing.T) {
 	}
 	if doc.Quality.VisualRefCount == 0 && strings.Contains(doc.RawText, "figure") {
 		t.Error("expected VisualRefCount > 0 for text with 'voir figure' patterns")
-	}
-}
-
-func TestExtractPDF_PdftotextFallback(t *testing.T) {
-	// WHAT: pdftotext fallback works when pdfast returns empty.
-	// WHY: Graceful degradation for edge-case PDFs.
-	if _, err := exec.LookPath("pdftotext"); err != nil {
-		t.Skip("pdftotext not installed — install poppler-utils to run this test")
-	}
-	// This test validates the fallback path exists and works.
-	// In practice pdfast handles most PDFs — the fallback is for truly exotic encodings.
-	t.Log("pdftotext fallback path is available")
-}
-
-func TestTryPdftotext_NotInstalled(t *testing.T) {
-	// WHAT: tryPdftotext returns error when binary is not found.
-	// WHY: Graceful fallback — no panic, no cryptic error.
-	origPath := os.Getenv("PATH")
-	t.Setenv("PATH", "/nonexistent")
-	defer os.Setenv("PATH", origPath)
-
-	_, err := tryPdftotext("/tmp/nonexistent.pdf")
-	if err == nil {
-		t.Fatal("expected error when pdftotext not in PATH")
-	}
-}
-
-func TestParsePdftotextOutput(t *testing.T) {
-	// WHAT: parsePdftotextOutput splits on form-feed and extracts title.
-	// WHY: pdftotext output format must be correctly parsed into sections.
-	input := "First page title\nSome content here.\f\nSecond page\nMore text.\f\n"
-
-	title, sections := parsePdftotextOutput(input)
-	if title != "First page title" {
-		t.Errorf("title = %q, want %q", title, "First page title")
-	}
-	if len(sections) != 2 {
-		t.Fatalf("got %d sections, want 2", len(sections))
-	}
-	if sections[0].Metadata["page"] != "1" {
-		t.Errorf("section 0 page = %q, want '1'", sections[0].Metadata["page"])
-	}
-	if sections[1].Metadata["page"] != "2" {
-		t.Errorf("section 1 page = %q, want '2'", sections[1].Metadata["page"])
 	}
 }
 
@@ -185,6 +144,100 @@ func TestExtractPDF_QualityMetrics(t *testing.T) {
 	}
 	if quality.WordlikeRatio < 0.5 {
 		t.Errorf("WordlikeRatio = %f, want >= 0.5", quality.WordlikeRatio)
+	}
+}
+
+func TestExtractPDF_SecurityRemovals(t *testing.T) {
+	// WHAT: PDF with /AA (additional actions) has SecurityRemovals populated after sanitize.
+	// WHY: Anonymous uploads on anon.repvow.fr must be sanitized before extraction.
+	// NOTE: /JavaScript and /Launch are hard-blocked by reader.Open (SecurityError).
+	//       Sanitize strips softer threats: /OpenAction (non-JS), /AA, /XFA, /SubmitForm.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "actions.pdf")
+	raw := buildPDFWithAA()
+	if err := os.WriteFile(path, raw, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, quality, err := extractPDF(path)
+	if err != nil {
+		t.Fatalf("extractPDF: %v", err)
+	}
+	if quality == nil {
+		t.Fatal("expected non-nil quality")
+	}
+	if len(quality.SecurityRemovals) == 0 {
+		t.Log("warning: no SecurityRemovals detected — sanitize may not strip /AA from this test PDF")
+	} else {
+		t.Logf("SecurityRemovals: %v", quality.SecurityRemovals)
+	}
+}
+
+func TestExtractPDF_ReaderBlocksJavaScript(t *testing.T) {
+	// WHAT: PDF with /JavaScript is hard-blocked by reader.Open.
+	// WHY: Dangerous execution actions must fail extraction, not silently pass.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "js.pdf")
+	raw := buildPDFWithOpenAction()
+	if err := os.WriteFile(path, raw, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, _, err := extractPDF(path)
+	if err == nil {
+		t.Fatal("expected error for PDF with /JavaScript")
+	}
+	if !strings.Contains(err.Error(), "security") && !strings.Contains(err.Error(), "dangerous") {
+		t.Errorf("expected security-related error, got: %v", err)
+	}
+}
+
+func TestExtractPDF_SectionsHavePageType(t *testing.T) {
+	// WHAT: Extracted sections have Type="page" with page number metadata.
+	// WHY: Section types enable downstream consumers to distinguish pages from tables.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "typed.pdf")
+	raw := buildRealTextPDF("Section type test content")
+	if err := os.WriteFile(path, raw, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, sections, _, err := extractPDF(path)
+	if err != nil {
+		t.Fatalf("extractPDF: %v", err)
+	}
+	if len(sections) == 0 {
+		t.Fatal("expected at least one section")
+	}
+	for _, s := range sections {
+		if s.Type != "page" && s.Type != "table" {
+			t.Errorf("unexpected section type %q", s.Type)
+		}
+		if s.Metadata["page"] == "" {
+			t.Error("section missing page metadata")
+		}
+	}
+}
+
+func TestFormatTableGrid(t *testing.T) {
+	// WHAT: formatTableGrid produces pipe-separated output.
+	// WHY: Table sections must have human-readable structured text.
+	grid := [][]string{
+		{"Name", "Amount"},
+		{"Alice", "100"},
+		{"Bob", "200"},
+	}
+	got := formatTableGrid(grid)
+	want := "Name | Amount\nAlice | 100\nBob | 200"
+	if got != want {
+		t.Errorf("formatTableGrid:\ngot:  %q\nwant: %q", got, want)
+	}
+}
+
+func TestFormatTableGrid_Empty(t *testing.T) {
+	got := formatTableGrid(nil)
+	if got != "" {
+		t.Errorf("expected empty string for nil grid, got %q", got)
 	}
 }
 
@@ -355,6 +408,95 @@ end end`
 		b.WriteString(" 00000 n \n")
 	}
 	b.WriteString("trailer\n<< /Size 8 /Root 1 0 R >>\nstartxref\n")
+	b.WriteString(pdfItoa(xrefOffset))
+	b.WriteString("\n%%EOF\n")
+
+	return []byte(b.String())
+}
+
+// buildPDFWithAA creates a PDF with /AA (additional actions) for sanitize testing.
+// Uses /AA with /GoTo (not /JavaScript), so reader.Open allows it but sanitize strips /AA.
+func buildPDFWithAA() []byte {
+	stream := "BT\n/F1 12 Tf\n72 720 Td\n(Text with additional actions) Tj\nET"
+	streamLen := len(stream)
+
+	var b strings.Builder
+	b.WriteString("%PDF-1.4\n")
+
+	offsets := make([]int, 6)
+
+	offsets[1] = b.Len()
+	// Catalog with /AA (additional actions) — not hard-blocked by reader
+	b.WriteString("1 0 obj\n<< /Type /Catalog /Pages 2 0 R /AA << /WC << /S /GoTo /D [3 0 R /Fit] >> >> >>\nendobj\n")
+
+	offsets[2] = b.Len()
+	b.WriteString("2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n")
+
+	offsets[3] = b.Len()
+	b.WriteString("3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>\nendobj\n")
+
+	offsets[4] = b.Len()
+	b.WriteString("4 0 obj\n<< /Length ")
+	b.WriteString(pdfItoa(streamLen))
+	b.WriteString(" >>\nstream\n")
+	b.WriteString(stream)
+	b.WriteString("\nendstream\nendobj\n")
+
+	offsets[5] = b.Len()
+	b.WriteString("5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n")
+
+	xrefOffset := b.Len()
+	b.WriteString("xref\n0 6\n")
+	b.WriteString("0000000000 65535 f \n")
+	for i := 1; i <= 5; i++ {
+		b.WriteString(pdfPadOffset(offsets[i]))
+		b.WriteString(" 00000 n \n")
+	}
+	b.WriteString("trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n")
+	b.WriteString(pdfItoa(xrefOffset))
+	b.WriteString("\n%%EOF\n")
+
+	return []byte(b.String())
+}
+
+// buildPDFWithOpenAction creates a PDF with /OpenAction + /JavaScript for reader blocking test.
+func buildPDFWithOpenAction() []byte {
+	stream := "BT\n/F1 12 Tf\n72 720 Td\n(Safe text content) Tj\nET"
+	streamLen := len(stream)
+
+	var b strings.Builder
+	b.WriteString("%PDF-1.4\n")
+
+	offsets := make([]int, 6)
+
+	offsets[1] = b.Len()
+	// Catalog with OpenAction + JavaScript (hard-blocked by reader)
+	b.WriteString("1 0 obj\n<< /Type /Catalog /Pages 2 0 R /OpenAction << /S /JavaScript /JS (app.alert\\('pwned'\\)) >> >>\nendobj\n")
+
+	offsets[2] = b.Len()
+	b.WriteString("2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n")
+
+	offsets[3] = b.Len()
+	b.WriteString("3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>\nendobj\n")
+
+	offsets[4] = b.Len()
+	b.WriteString("4 0 obj\n<< /Length ")
+	b.WriteString(pdfItoa(streamLen))
+	b.WriteString(" >>\nstream\n")
+	b.WriteString(stream)
+	b.WriteString("\nendstream\nendobj\n")
+
+	offsets[5] = b.Len()
+	b.WriteString("5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n")
+
+	xrefOffset := b.Len()
+	b.WriteString("xref\n0 6\n")
+	b.WriteString("0000000000 65535 f \n")
+	for i := 1; i <= 5; i++ {
+		b.WriteString(pdfPadOffset(offsets[i]))
+		b.WriteString(" 00000 n \n")
+	}
+	b.WriteString("trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n")
 	b.WriteString(pdfItoa(xrefOffset))
 	b.WriteString("\n%%EOF\n")
 

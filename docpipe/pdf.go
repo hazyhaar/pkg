@@ -1,37 +1,66 @@
-// CLAUDE:SUMMARY PDF text extractor using pdfast — page-aware extraction with quality scoring, pdftotext fallback.
-// CLAUDE:DEPENDS docpipe/quality.go, pdfast/ops/text, pdfast/pkg/reader
+// CLAUDE:SUMMARY PDF text extractor using pdfast — sanitize, page-aware extraction, table detection, layout analysis.
+// CLAUDE:DEPENDS docpipe/quality.go, pdfast/ops/text, pdfast/ops/sanitize, pdfast/ops/tables, pdfast/ops/layout, pdfast/pkg/reader
 // CLAUDE:EXPORTS extractPDF
-// CLAUDE:WARN pdfast remplace pdfcpu pour l'extraction. pdftotext reste fallback ultime si pdfast retourne 0 sections.
 package docpipe
 
 import (
-	"bytes"
-	"context"
 	"fmt"
-	"os/exec"
+	"os"
 	"strconv"
 	"strings"
-	"time"
 
+	"github.com/hazyhaar/pdfast/ops/layout"
+	"github.com/hazyhaar/pdfast/ops/sanitize"
+	"github.com/hazyhaar/pdfast/ops/tables"
 	pdftext "github.com/hazyhaar/pdfast/ops/text"
+	"github.com/hazyhaar/pdfast/pkg/reader"
 )
 
-// extractPDF extracts text from a PDF file using pdfast for structure-aware parsing.
-// Returns title, sections (one per page), extraction quality metrics, and error.
-// Falls back to pdftotext (poppler) if pdfast extracts nothing.
+// extractPDF extracts text from a PDF file using pdfast with sanitize-first pipeline.
+// Pipeline: open → sanitize → extract text → detect tables → detect layout.
+// Returns title, sections (pages + tables), extraction quality metrics, and error.
+// If pdfast extracts nothing, returns empty document with NeedsOCR quality (no error).
 func extractPDF(path string) (string, []Section, *ExtractionQuality, error) {
-	// --- pdfast extraction ---
-	pages, pdfErr := pdftext.ExtractFile(path)
+	// --- Open file ---
+	f, err := os.Open(path)
+	if err != nil {
+		return "", nil, nil, fmt.Errorf("open pdf: %w", err)
+	}
+	defer f.Close()
 
-	var info *pdftext.PDFInfo
-	if pdfErr == nil {
-		info, _ = pdftext.FileInfo(path)
+	stat, err := f.Stat()
+	if err != nil {
+		return "", nil, nil, fmt.Errorf("stat pdf: %w", err)
+	}
+
+	// --- Parse via reader.Open (includes structural security scan) ---
+	res, err := reader.Open(f, stat.Size())
+	if err != nil {
+		return "", nil, nil, fmt.Errorf("pdfast open: %w", err)
+	}
+
+	// --- Sanitize: strip JS, OpenAction, Launch, XFA before text extraction ---
+	var securityRemovals []string
+	sanResult, sanErr := sanitize.Sanitize(res.Store)
+	if sanErr == nil && sanResult != nil {
+		for _, r := range sanResult.Removed {
+			securityRemovals = append(securityRemovals, fmt.Sprintf("%s (obj %d: %s)", r.Key, r.ObjectNum, r.Reason))
+		}
+	}
+
+	// --- Extract text from store ---
+	pages, pdfErr := pdftext.Extract(res.Store)
+
+	// --- Get PDF info for image streams detection ---
+	var hasImages bool
+	info, _ := pdftext.FileInfo(path)
+	if info != nil {
+		hasImages = info.HasImageStreams
 	}
 
 	var sections []Section
 	var title string
 	totalChars := 0
-	pageCount := 0
 
 	if pdfErr == nil {
 		for _, page := range pages {
@@ -55,37 +84,69 @@ func extractPDF(path string) (string, []Section, *ExtractionQuality, error) {
 				}
 			}
 
+			pageMeta := map[string]string{
+				"page": strconv.Itoa(page.PageNum),
+			}
+
+			// --- Layout detection per page ---
+			if len(page.Blocks) > 0 {
+				pl := layout.DetectLayout(page.Blocks, 612, 792)
+				if pl.IsMultiCol {
+					pageMeta["columns"] = strconv.Itoa(len(pl.Columns))
+				}
+			}
+
 			sections = append(sections, Section{
-				Text: text,
-				Type: "page",
-				Metadata: map[string]string{
-					"page": strconv.Itoa(page.PageNum),
-				},
+				Text:     text,
+				Type:     "page",
+				Metadata: pageMeta,
 			})
+
+			// --- Table detection per page ---
+			if len(page.Blocks) >= 4 {
+				tbls := tables.Extract(page.Blocks, tables.DefaultConfig())
+				for ti, tbl := range tbls {
+					grid := tbl.ToStrings()
+					tableText := formatTableGrid(grid)
+					if tableText != "" {
+						sections = append(sections, Section{
+							Text: tableText,
+							Type: "table",
+							Metadata: map[string]string{
+								"page":    strconv.Itoa(page.PageNum),
+								"table":   strconv.Itoa(ti + 1),
+								"rows":    strconv.Itoa(tbl.NumRows),
+								"columns": strconv.Itoa(tbl.NumCols),
+							},
+						})
+					}
+				}
+			}
 		}
-		pageCount = len(pages)
 	}
 
+	// No text extracted: NeedsOCR quality, no error
 	if len(sections) == 0 {
-		// Fallback: try pdftotext (poppler) as subprocess.
-		if text, err := tryPdftotext(path); err == nil && text != "" {
-			title, sections = parsePdftotextOutput(text)
-			totalChars = len([]rune(text))
-		} else if pdfErr != nil {
-			return "", nil, nil, fmt.Errorf("pdf extraction failed: %w", pdfErr)
-		} else {
-			return "", nil, nil, fmt.Errorf("no text content found in PDF")
+		pageCount := 0
+		if res.Doc != nil {
+			pageCount = res.Doc.PageCount
 		}
+		quality := &ExtractionQuality{
+			PageCount:        pageCount,
+			CharsPerPage:     0,
+			HasImageStreams:   hasImages,
+			SecurityRemovals: securityRemovals,
+		}
+		return "", nil, quality, nil
 	}
 
-	// Page count: prefer info (accurate), fallback to extracted pages count
-	if info != nil && info.PageCount > 0 {
-		pageCount = info.PageCount
-	}
-	if pageCount == 0 {
-		pageCount = len(sections)
+	// --- Page count ---
+	pageCount := len(pages)
+	if res.Doc != nil && res.Doc.PageCount > 0 {
+		pageCount = res.Doc.PageCount
 	}
 
+	// --- Build full text ---
 	fullText := strings.Builder{}
 	for i, s := range sections {
 		if i > 0 {
@@ -99,75 +160,36 @@ func extractPDF(path string) (string, []Section, *ExtractionQuality, error) {
 		charsPerPage = float64(totalChars) / float64(pageCount)
 	}
 
-	hasImages := false
-	if info != nil {
-		hasImages = info.HasImageStreams
-	}
-
 	ft := fullText.String()
 	quality := &ExtractionQuality{
-		PageCount:      pageCount,
-		CharsPerPage:   charsPerPage,
-		PrintableRatio: computePrintableRatio(ft),
-		WordlikeRatio:  computeWordlikeRatio(ft),
-		HasImageStreams: hasImages,
-		VisualRefCount: countVisualRefs(ft),
+		PageCount:        pageCount,
+		CharsPerPage:     charsPerPage,
+		PrintableRatio:   computePrintableRatio(ft),
+		WordlikeRatio:    computeWordlikeRatio(ft),
+		HasImageStreams:  hasImages,
+		VisualRefCount:   countVisualRefs(ft),
+		SecurityRemovals: securityRemovals,
 	}
 
 	return title, sections, quality, nil
 }
 
-// tryPdftotext attempts to extract text using the pdftotext binary (poppler-utils).
-// Returns the extracted text or an error if pdftotext is not installed or fails.
-func tryPdftotext(path string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, "pdftotext", "-layout", path, "-")
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("pdftotext: %w: %s", err, stderr.String())
+// formatTableGrid formats a 2D string grid into a pipe-separated table.
+func formatTableGrid(grid [][]string) string {
+	if len(grid) == 0 {
+		return ""
 	}
-	return strings.TrimSpace(stdout.String()), nil
-}
-
-// parsePdftotextOutput splits pdftotext output into title + sections.
-// Pages are separated by form-feed (\f) characters.
-func parsePdftotextOutput(text string) (string, []Section) {
-	rawPages := strings.Split(text, "\f")
-	sections := make([]Section, 0, len(rawPages))
-	var title string
-
-	for i, page := range rawPages {
-		page = strings.TrimSpace(page)
-		if page == "" {
-			continue
+	var b strings.Builder
+	for i, row := range grid {
+		if i > 0 {
+			b.WriteByte('\n')
 		}
-
-		if title == "" {
-			for _, line := range strings.Split(page, "\n") {
-				line = strings.TrimSpace(line)
-				if line != "" {
-					title = line
-					if len(title) > 200 {
-						title = title[:200]
-					}
-					break
-				}
+		for j, cell := range row {
+			if j > 0 {
+				b.WriteString(" | ")
 			}
+			b.WriteString(strings.TrimSpace(cell))
 		}
-
-		sections = append(sections, Section{
-			Text: page,
-			Type: "page",
-			Metadata: map[string]string{
-				"page": strconv.Itoa(i + 1),
-			},
-		})
 	}
-
-	return title, sections
+	return b.String()
 }

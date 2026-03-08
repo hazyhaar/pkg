@@ -1,11 +1,264 @@
-linters-settings:
-  govet:
-    shadow:
-      strict: false
+# golangci-lint configuration — comprehensive AI code quality gates
+# Targets the full spectrum of defects in AI-generated Go code.
+#
+# These linters complement gopls + staticcheck (already in .lsp.json).
+# gopls catches type/correctness issues; these catch quality/safety issues.
+#
+# Usage:  golangci-lint run ./...
+# Requires: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+#           (v1.62+)
+
+run:
+  timeout: 5m
+  modules-download-mode: readonly
 
 linters:
-  disable:
-    # HOROS convention: sentinel errors use ErrXxx (not XxxError for error types).
-    # This is a deliberate naming choice, not a linter violation.
-    - errname
-    # exportloopref removed: deprecated since Go 1.22 (loopvar)
+  disable-all: true
+  enable:
+    # ──────────────────────────────────────────────
+    # COMPLEXITY & SIZE
+    # AI-generated code is structurally flat and long.
+    # ──────────────────────────────────────────────
+
+    # Cognitive complexity — penalizes nesting more than branching.
+    # The single best metric for "is this function too tangled".
+    - gocognit
+
+    # Cyclomatic complexity — classic McCabe metric.
+    # Complementary to gocognit: catches wide switch/case fans.
+    - cyclop
+
+    # Function length in lines and statements.
+    # LLMs routinely produce 150–300 line functions.
+    - funlen
+
+    # Nesting depth — catches 5-level if pyramids even when
+    # overall complexity is within bounds.
+    - nestif
+
+    # ──────────────────────────────────────────────
+    # DUPLICATION & MAGIC VALUES
+    # AI copy-pastes patterns instead of abstracting.
+    # ──────────────────────────────────────────────
+
+    # Duplicate code blocks.
+    - dupl
+
+    # Repeated string/number literals → constants.
+    - goconst
+
+    # Parameters that always receive the same value — leftover
+    # from a copy-paste where the signature was never trimmed.
+    - unparam
+
+    # ──────────────────────────────────────────────
+    # ERROR HANDLING
+    # The #1 category of AI Go bugs.
+    # ──────────────────────────────────────────────
+
+    # Unchecked error return values (Close, Write, Rows.Err, ...).
+    - errcheck
+
+    # err != nil tested but nil returned anyway.
+    - nilerr
+
+    # Errors crossing package boundaries without %w wrapping.
+    - wrapcheck
+
+    # Forces errors.Is / errors.As instead of == or type assert.
+    - errorlint
+
+    # ──────────────────────────────────────────────
+    # RESOURCE LEAKS
+    # AI opens things and forgets to close them.
+    # ──────────────────────────────────────────────
+
+    # HTTP response bodies not closed.
+    - bodyclose
+
+    # sql.Rows / sql.Stmt not closed.
+    - sqlclosecheck
+
+    # rows.Err() not checked after iteration.
+    - rowserrcheck
+
+    # ──────────────────────────────────────────────
+    # SECURITY
+    # AI produces functional but naive code.
+    # ──────────────────────────────────────────────
+
+    # Common security mistakes: SQL concat, weak rand, broad
+    # file permissions, hardcoded credentials.
+    - gosec
+
+    # make([]T, n) followed by append — leaves n zero-value
+    # elements at the front.
+    - makezero
+
+    # ──────────────────────────────────────────────
+    # DOCUMENTATION
+    # AI comments are vague or syntactically wrong.
+    # ──────────────────────────────────────────────
+
+    # Godoc sentence formatting (period at end, starts with name).
+    - godot
+
+    # ──────────────────────────────────────────────
+    # STYLE & HYGIENE
+    # ──────────────────────────────────────────────
+
+    # Naked returns in long functions — unreadable.
+    - nakedret
+
+    # Unnecessary type conversions.
+    - unconvert
+
+    # context.Context passed in struct fields instead of
+    # as first function argument.
+    - containedctx
+
+    # Goroutine/parallel test hygiene.
+    - tparallel
+
+    # Missing t.Helper() in test helpers.
+    - thelper
+
+    # Flexible meta-linter for structural rules.
+    - revive
+
+linters-settings:
+  # ── Complexity & size ──────────────────────────
+
+  gocognit:
+    min-complexity: 15
+
+  cyclop:
+    max-complexity: 15
+    package-average: 7.0
+    skip-tests: true
+
+  funlen:
+    lines: 80
+    statements: 50
+    ignore-comments: true
+
+  nestif:
+    min-complexity: 4
+
+  # ── Duplication & constants ────────────────────
+
+  dupl:
+    threshold: 150
+
+  goconst:
+    min-occurrences: 3
+    min-len: 3
+    numbers: true
+    ignore-tests: true
+
+  # ── Error handling ─────────────────────────────
+
+  errcheck:
+    check-type-assertions: true
+    exclude-functions:
+      - fmt.Print
+      - fmt.Println
+      - fmt.Printf
+      - fmt.Fprint
+      - fmt.Fprintln
+      - fmt.Fprintf
+      - (go.uber.org/zap.SugaredLogger).Infow
+      - (go.uber.org/zap.SugaredLogger).Warnw
+      - (go.uber.org/zap.SugaredLogger).Errorw
+
+  wrapcheck:
+    ignorePackageGlobs:
+      - encoding/*
+      - fmt
+      - strconv
+
+  errorlint:
+    comparison: true
+    asserts: true
+    errorf: true
+    errorf-multi: true
+
+  # ── Security ───────────────────────────────────
+
+  gosec:
+    excludes:
+      # G104 = "unhandled error" — already covered by errcheck.
+      - G104
+    config:
+      global:
+        audit: false
+
+  # ── Documentation ──────────────────────────────
+
+  godot:
+    scope: declarations
+    period: true
+    capital: false
+
+  # ── Style ──────────────────────────────────────
+
+  nakedret:
+    max-func-lines: 5
+
+  revive:
+    rules:
+      - name: unused-parameter
+        severity: warning
+      - name: unused-receiver
+        severity: warning
+      - name: context-as-argument
+        severity: error
+      - name: function-result-limit
+        severity: warning
+        arguments: [3]
+
+  # ── Test quality ───────────────────────────────
+
+  thelper:
+    test:
+      begin: true
+    benchmark:
+      begin: true
+
+# ── Issue filtering ────────────────────────────────
+
+issues:
+  exclude-dirs:
+    - vendor
+    - testdata
+    - internal/generated
+  exclude-generated: strict
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+  exclude-rules:
+    # Test files: relax function length and wrapping.
+    - path: _test\.go
+      linters:
+        - funlen
+        - wrapcheck
+        - goconst
+
+    # Main/cmd entrypoints: relax complexity (flag parsing).
+    - path: cmd/
+      linters:
+        - cyclop
+        - gocognit
+
+    # Allow dot-imports in tests (testify, gomega, ginkgo).
+    - path: _test\.go
+      text: "dot-imports"
+
+output:
+  formats:
+    - format: colored-line-number
+  sort-results: true
+  sort-order:
+    - file
+    - linter
+    - severity

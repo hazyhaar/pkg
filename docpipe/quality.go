@@ -10,12 +10,13 @@ import (
 
 // ExtractionQuality captures metrics about PDF text extraction quality.
 type ExtractionQuality struct {
-	PageCount      int     `json:"page_count"`
-	CharsPerPage   float64 `json:"chars_per_page"`
-	PrintableRatio float64 `json:"printable_ratio"`
-	WordlikeRatio  float64 `json:"wordlike_ratio"`
-	HasImageStreams bool    `json:"has_image_streams"`
-	VisualRefCount int     `json:"visual_ref_count"`
+	PageCount          int      `json:"page_count"`
+	CharsPerPage       float64  `json:"chars_per_page"`
+	PrintableRatio     float64  `json:"printable_ratio"`
+	WordlikeRatio      float64  `json:"wordlike_ratio"`
+	HasImageStreams    bool     `json:"has_image_streams"`
+	VisualRefCount     int      `json:"visual_ref_count"`
+	SecurityRemovals   []string `json:"security_removals,omitempty"`
 }
 
 // NeedsOCR returns true if the PDF likely needs OCR to extract text.
